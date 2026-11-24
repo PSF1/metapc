@@ -24,7 +24,18 @@ typedef struct ATAPI {
         int (*is_track_audio)(uint32_t pos, int ismsf);
         void (*stop)(void);
         void (*exit)(void);
+        /* Optional (may be NULL). Kind of disc loaded: CD_DISC_NONE / CD_DISC_CD / CD_DISC_DVD. */
+        int (*disc_type)(void);
+        /* Optional (may be NULL). Send a CDB straight to a physical drive.
+           data_in: 1 = drive -> host, 0 = host -> drive. *len is the buffer size on entry and the
+           bytes transferred on return. sense receives 18 bytes of sense data on CHECK CONDITION.
+           Returns the SCSI status (0 = GOOD, 2 = CHECK CONDITION) or -1 if the request couldn't be sent. */
+        int (*passthrough)(const uint8_t *cdb, int cdb_len, uint8_t *buf, int *len, int data_in, uint8_t *sense);
 } ATAPI;
+
+#define CD_DISC_NONE 0
+#define CD_DISC_CD 1
+#define CD_DISC_DVD 2
 
 extern ATAPI *atapi;
 

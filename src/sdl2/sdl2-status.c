@@ -13,6 +13,7 @@
 #include "hdd.h"
 #include "ide.h"
 #include "cdrom-image.h"
+#include "cdrom-ioctl.h"
 #include "scsi_zip.h"
 #include "codegen_allocator.h"
 #include "sdl2-common.h"
@@ -65,6 +66,15 @@ drive_info_t *get_machine_info(char *s, int *num_drive_info) {
                                 if (!strlen(image_path))
                                         continue;
                                 strcpy(drive_info[pos].fn, image_path);
+                        } else if (cdrom_drive > 0) {
+                                /* Physical host drive. Don't poll it for media here: this runs on the UI thread. */
+#ifdef _WIN32
+                                sprintf(drive_info[pos].fn, "Host drive %c:", cdrom_drive);
+#elif __linux__
+                                snprintf(drive_info[pos].fn, sizeof(drive_info[pos].fn), "Host drive %s", cdrom_device_path);
+#else
+                                sprintf(drive_info[pos].fn, "Host drive disk%i", cdrom_drive);
+#endif
                         } else
                                 strcpy(drive_info[pos].fn, "");
                         drive_info[pos].enabled = strlen(drive_info[pos].fn) > 0;

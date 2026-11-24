@@ -74,6 +74,9 @@
 			<object class="wxMenuItem" name="IDM_CDROM_IMAGE_LOAD">
 				<label>_Load image...</label>
 			</object>
+			<object class="wxMenuItem" name="IDM_CDROM_REFRESH">
+				<label>_Refresh host drives</label>
+			</object>
 			<object class="separator"/>
 			<object class="wxMenuItem" name="IDM_CDROM_EMPTY">
 				<label>_Empty</label>

@@ -152,30 +152,6 @@ static int image_ready(void) {
         return 1;
 }
 
-static int image_get_last_block(unsigned char starttrack, int msf, int maxlen, int single) {
-        int c;
-        uint32_t lb = 0;
-
-        if (!cdrom)
-                return 0;
-
-        int first_track;
-        int last_track;
-        int number;
-        unsigned char attr;
-        TMSF tmsf;
-        cdrom->GetAudioTracks(first_track, last_track, tmsf);
-
-        for (c = 0; c <= last_track; c++) {
-                uint32_t address;
-                cdrom->GetAudioTrackInfo(c + 1, number, tmsf, attr);
-                address = MSFtoLBA(tmsf.min, tmsf.sec, tmsf.fr) - 150;
-                if (address > lb)
-                        lb = address;
-        }
-        return lb;
-}
-
 static int image_medium_changed(void) {
         if (!cdrom)
                 return 0;
@@ -316,7 +292,11 @@ static int image_readtoc(unsigned char *b, unsigned char starttrack, int msf, in
                         b[len++] = tmsf.sec;
                         b[len++] = tmsf.fr;
                 } else {
-                        temp = MSFtoLBA(tmsf.min, tmsf.sec, tmsf.fr) - 150;
+                        /* The leadout of a DVD image doesn't fit in MSF: take it in sectors. */
+                        if (c == last_track)
+                                temp = cdrom->GetLeadoutSector();
+                        else
+                                temp = MSFtoLBA(tmsf.min, tmsf.sec, tmsf.fr) - 150;
                         b[len++] = temp >> 24;
                         b[len++] = temp >> 16;
                         b[len++] = temp >> 8;
@@ -472,12 +452,19 @@ int image_open(char *fn) {
         image_cd_state = CD_STOPPED;
         image_cd_pos = 0;
         cd_buflen = 0;
-        cdrom_capacity = image_get_last_block(0, 0, 4096, 0) + 1;
+        cdrom_capacity = cdrom->GetLeadoutSector();
         atapi = &image_atapi;
         return 0;
 }
 
 static void image_exit(void) {}
+
+/* An image has no profile to ask: anything bigger than any CD (~100 minutes) is a DVD. */
+static int image_disc_type(void) {
+        if (!cdrom || !cdrom_capacity)
+                return CD_DISC_NONE;
+        return (cdrom_capacity > 450000) ? CD_DISC_DVD : CD_DISC_CD;
+}
 
 ATAPI image_atapi = {image_ready,
                      image_medium_changed,
@@ -497,4 +484,6 @@ ATAPI image_atapi = {image_ready,
                      image_status,
                      image_is_track_audio,
                      image_stop,
-                     image_exit};
+                     image_exit,
+                     image_disc_type,
+                     NULL};

@@ -1,7 +1,11 @@
 /*Linux CD-ROM support via IOCTL*/
 
 #include <linux/cdrom.h>
+#include <linux/fs.h>
+#include <scsi/sg.h>
 #include <fcntl.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -234,31 +238,26 @@ static int ioctl_ready(void) {
         return 1;
 }
 
-static int ioctl_get_last_block(unsigned char starttrack, int msf, int maxlen, int single) {
-        int c;
-        int lb = 0;
-        int tv = 0;
-        struct cdrom_tocentry lbtoc[100];
+/* Number of 2048-byte sectors on the disc. The block device size works for DVDs, where a
+   leadout in MSF can't describe more than 255 minutes. Falls back to the leadout in LBA format. */
+static uint32_t ioctl_get_capacity(void) {
+        uint64_t bytes = 0;
+        struct cdrom_tocentry leadout;
 
         if (ioctl_fd <= 0)
                 return 0;
 
         ioctl_cd_state = CD_STOPPED;
 
-        if (!tocvalid)
-                tv = read_toc(ioctl_fd, lbtoc);
+        if (ioctl(ioctl_fd, BLKGETSIZE64, &bytes) == 0 && bytes)
+                return (uint32_t)(bytes / 2048);
 
-        if (!tv)
-                return 0;
-
-        last_block = 0;
-        for (c = 0; c <= last_track; c++) {
-                uint32_t address;
-                address = MSFtoLBA(toc[c].cdte_addr.msf.minute, toc[c].cdte_addr.msf.second, toc[c].cdte_addr.msf.frame);
-                if (address > last_block)
-                        lb = address;
-        }
-        return lb;
+        memset(&leadout, 0, sizeof(leadout));
+        leadout.cdte_track = CDROM_LEADOUT;
+        leadout.cdte_format = CDROM_LBA;
+        if (ioctl(ioctl_fd, CDROMREADTOCENTRY, &leadout) == 0)
+                return leadout.cdte_addr.lba;
+        return 0;
 }
 
 static int ioctl_medium_changed(void) {
@@ -284,7 +283,7 @@ static int ioctl_medium_changed(void) {
         if ((toc_entry.cdte_addr.msf.minute != toc[toc_hdr.cdth_trk1].cdte_addr.msf.minute) ||
             (toc_entry.cdte_addr.msf.second != toc[toc_hdr.cdth_trk1].cdte_addr.msf.second) ||
             (toc_entry.cdte_addr.msf.frame != toc[toc_hdr.cdth_trk1].cdte_addr.msf.frame)) {
-                cdrom_capacity = ioctl_get_last_block(0, 0, 4096, 0);
+                cdrom_capacity = ioctl_get_capacity();
                 return 1;
         }
         return 0;
@@ -354,14 +353,14 @@ static void ioctl_load(void) {
 
         ioctl(ioctl_fd, CDROMEJECT);
 
-        cdrom_capacity = ioctl_get_last_block(0, 0, 4096, 0);
+        cdrom_capacity = ioctl_get_capacity();
 }
 
 static int ioctl_readsector(uint8_t *b, int sector, int count) {
         if (ioctl_fd <= 0)
                 return -1;
 
-        lseek(ioctl_fd, sector * 2048, SEEK_SET);
+        lseek(ioctl_fd, (off_t)sector * 2048, SEEK_SET);
         read(ioctl_fd, b, count * 2048);
 
         return 0;
@@ -621,6 +620,61 @@ static void ioctl_exit(void) {
         tocvalid = 0;
 }
 
+/* Send a CDB to the drive with SG_IO. See ATAPI.passthrough. */
+static int ioctl_passthrough(const uint8_t *cdb, int cdb_len, uint8_t *buf, int *len, int data_in, uint8_t *sense) {
+        sg_io_hdr_t io;
+        uint8_t sbuf[32];
+
+        if (ioctl_fd <= 0 || cdb_len > 16 || *len < 0)
+                return -1;
+        memset(&io, 0, sizeof(io));
+        memset(sbuf, 0, sizeof(sbuf));
+        io.interface_id = 'S';
+        io.cmdp = (unsigned char *)cdb;
+        io.cmd_len = cdb_len;
+        io.dxferp = buf;
+        io.dxfer_len = *len;
+        io.dxfer_direction = *len ? (data_in ? SG_DXFER_FROM_DEV : SG_DXFER_TO_DEV) : SG_DXFER_NONE;
+        io.sbp = sbuf;
+        io.mx_sb_len = sizeof(sbuf);
+        io.timeout = 30000;
+        if (ioctl(ioctl_fd, SG_IO, &io) < 0) {
+                *len = 0;
+                return -1;
+        }
+        *len -= io.resid;
+        if (*len < 0)
+                *len = 0;
+        if (sense)
+                memcpy(sense, sbuf, 18);
+        return io.status;
+}
+
+/* CD or DVD, from the drive's current MMC profile; falls back to the disc size. */
+static int ioctl_disc_type(void) {
+        uint8_t cdb[10] = {0x46, 0x02, 0, 0, 0, 0, 0, 0, 8, 0}; /* GET CONFIGURATION, header only */
+        uint8_t buf[8];
+        int len = sizeof(buf);
+        uint32_t capacity;
+
+        if (ioctl_fd <= 0)
+                return CD_DISC_NONE;
+        if (ioctl_passthrough(cdb, sizeof(cdb), buf, &len, 1, NULL) == 0 && len >= 8) {
+                int profile = (buf[6] << 8) | buf[7];
+
+                if (profile >= 0x08 && profile <= 0x0a)
+                        return CD_DISC_CD;
+                if (profile >= 0x10)
+                        return CD_DISC_DVD;
+                if (profile == 0)
+                        return CD_DISC_NONE;
+        }
+        capacity = ioctl_get_capacity();
+        if (!capacity)
+                return CD_DISC_NONE;
+        return (capacity > 450000) ? CD_DISC_DVD : CD_DISC_CD;
+}
+
 static ATAPI ioctl_atapi = {ioctl_ready,
                             ioctl_medium_changed,
                             ioctl_readtoc,
@@ -639,4 +693,6 @@ static ATAPI ioctl_atapi = {ioctl_ready,
                             ioctl_status,
                             ioctl_is_track_audio,
                             ioctl_stop,
-                            ioctl_exit};
+                            ioctl_exit,
+                            ioctl_disc_type,
+                            ioctl_passthrough};

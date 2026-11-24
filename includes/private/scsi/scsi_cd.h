@@ -8,7 +8,7 @@ void cd_set_speed(int speed);
 
 extern int cd_speed;
 
-#define MAX_CD_MODEL 12
+#define MAX_CD_MODEL 13
 
 #define CD_MODEL_INTERFACE_ALL                                                                                                   \
         0 // even when controller is not IDE and not SCSI (to always have the PCemCD model as default, even when not selectable)

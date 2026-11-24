@@ -21,6 +21,7 @@
 #include "x86_ops.h"
 #include "codegen.h"
 #include "cdrom-null.h"
+#include "cdrom-host.h"
 #include "config.h"
 #include "cpu.h"
 #include "disc_fdi.h"
@@ -309,6 +310,7 @@ void initpc(int argc, char *argv[]) {
 #endif
                         }
                 } else {
+                        cdrom_drive = cdrom_host_resolve(cdrom_drive);
                         ioctl_set_drive(cdrom_drive);
                 }
         }
@@ -431,6 +433,7 @@ void resetpchard() {
 #endif
                         }
                 } else {
+                        cdrom_drive = cdrom_host_resolve(cdrom_drive);
                         ioctl_set_drive(cdrom_drive);
                         ioctl_reset();
                 }
@@ -707,6 +710,13 @@ void loadconfig(char *fn) {
         else
                 strcpy(image_path, "");
 
+        p = (char *)config_get_string(CFG_MACHINE, NULL, "cdrom_host_id", "");
+        if (p) {
+                strncpy(cdrom_host_id, p, sizeof(cdrom_host_id) - 1);
+                cdrom_host_id[sizeof(cdrom_host_id) - 1] = 0;
+        } else
+                cdrom_host_id[0] = 0;
+
         p = (char *)config_get_string(CFG_MACHINE, NULL, "cdrom_device_path", "/dev/cdrom");
         if (p)
                 strcpy(cdrom_device_path, p);
@@ -899,6 +909,7 @@ void saveconfig(char *fn) {
         config_set_int(CFG_MACHINE, NULL, "cdrom_channel", cdrom_channel);
         config_set_string(CFG_MACHINE, NULL, "cdrom_path", image_path);
         config_set_string(CFG_MACHINE, NULL, "cdrom_device_path", cdrom_device_path);
+        config_set_string(CFG_MACHINE, NULL, "cdrom_host_id", cdrom_host_id);
 
         config_set_int(CFG_MACHINE, NULL, "zip_channel", zip_channel);
 

@@ -37,12 +37,15 @@ enum { CMD_POS_IDLE = 0, CMD_POS_WAIT, CMD_POS_START_SECTOR, CMD_POS_TRANSFER, C
 #define GPCMD_GET_EVENT_STATUS_NOTIFICATION 0x4a
 #define GPCMD_PAUSE_RESUME 0x4b
 #define GPCMD_STOP_PLAY_SCAN 0x4e
+#define GPCMD_GET_CONFIGURATION 0x46
 #define GPCMD_READ_DISC_INFORMATION 0x51
 #define GPCMD_MODE_SELECT_10 0x55
 #define GPCMD_MODE_SENSE_10 0x5a
 #define GPCMD_PLAY_AUDIO_12 0xa5
 #define GPCMD_READ_12 0xa8
-#define GPCMD_SEND_DVD_STRUCTURE 0xad
+#define GPCMD_SEND_KEY 0xa3
+#define GPCMD_REPORT_KEY 0xa4
+#define GPCMD_READ_DVD_STRUCTURE 0xad
 #define GPCMD_SET_SPEED 0xbb
 #define GPCMD_MECHANISM_STATUS 0xbd
 #define GPCMD_READ_CD 0xbe
@@ -117,7 +120,10 @@ static uint8_t atapi_cmd_table[0x100] = {
         [GPCMD_MODE_SENSE_10] = 0,
         [GPCMD_PLAY_AUDIO_12] = CHECK_READY,
         [GPCMD_READ_12] = CHECK_READY,
-        [GPCMD_SEND_DVD_STRUCTURE] = CHECK_READY, /* Read DVD structure (NOT IMPLEMENTED YET) */
+        [GPCMD_GET_CONFIGURATION] = ALLOW_UA,    /* DVD models only */
+        [GPCMD_SEND_KEY] = 0,                    /* DVD models only */
+        [GPCMD_REPORT_KEY] = 0,                  /* DVD models only; RPC state works without a disc */
+        [GPCMD_READ_DVD_STRUCTURE] = CHECK_READY, /* DVD models only */
         [GPCMD_SET_SPEED] = 0,
         [GPCMD_MECHANISM_STATUS] = 0,
         [GPCMD_READ_CD] = CHECK_READY,
@@ -248,6 +254,7 @@ static struct {
         char *model_config_string_40;
         int interfaces;
         int speed; // Not an index, but a "speed" value. -1 == allow override
+        int is_dvd; // DVD-ROM drive: GET CONFIGURATION, READ DVD STRUCTURE, REPORT/SEND KEY
 } const cd_models[] = {
         {
                 // Generic PCem CD
@@ -451,6 +458,23 @@ static struct {
                 CD_MODEL_INTERFACE_IDE,
                 72,
         },
+        {
+                // Generic PCem DVD-ROM. Reads DVDs from images or a host drive (CSS keys are passed to the host drive).
+                "PCem",
+                "PCemDVD v1.0",
+                "53R142",
+                "PCemDVD",
+                "1.0",
+
+                "",
+                "v1.0",
+                "PCemDVD",
+                "PCemDVD (DVD-ROM)",
+                "pcemdvd",
+                CD_MODEL_INTERFACE_ALL,
+                -1,
+                1,
+        },
 
 };
 
@@ -467,8 +491,10 @@ void cd_set_model(char *model) {
                 while (1) {
                         if (!model)
                                 break;
-                        if (c > MAX_CD_MODEL)
+                        if (c >= MAX_CD_MODEL) {
+                                c = 0; /* unknown model: default */
                                 break;
+                        }
                         if (!strncmp(cd_models[c].model_string_40, model, 40))
                                 break;
 
@@ -489,7 +515,7 @@ char *cd_model_to_config(char *model) {
         while (1) {
                 if (!model)
                         break;
-                if (c > MAX_CD_MODEL) {
+                if (c >= MAX_CD_MODEL) {
                         c = 0; // default
                         break;
                 }
@@ -507,7 +533,7 @@ char *cd_model_from_config(char *config) {
         while (1) {
                 if (!config)
                         break;
-                if (c > MAX_CD_MODEL) {
+                if (c >= MAX_CD_MODEL) {
                         c = 0; // default
                         break;
                 }
@@ -615,6 +641,177 @@ static void ide_padstr8(uint8_t *buf, int buf_size, const char *src) {
                         buf[i] = ' ';
                 }
         }
+}
+
+#define ASC_INCOMPATIBLE_FORMAT 0x30
+
+static int is_dvd_command(uint8_t cmd) {
+        return cmd == GPCMD_GET_CONFIGURATION || cmd == GPCMD_SEND_KEY || cmd == GPCMD_REPORT_KEY ||
+               cmd == GPCMD_READ_DVD_STRUCTURE;
+}
+
+static int cd_disc_type(void) {
+        if (atapi->disc_type)
+                return atapi->disc_type();
+        return atapi->ready() ? CD_DISC_CD : CD_DISC_NONE;
+}
+
+static int add_feature(uint8_t *b, int len, int rt, int start, int code, int version, int persistent, int current,
+                       const uint8_t *payload, int payload_len) {
+        if ((rt == 2) ? (code != start) : (code < start))
+                return len;
+        if (rt == 1 && !current)
+                return len;
+        b[len++] = code >> 8;
+        b[len++] = code & 0xff;
+        b[len++] = (version << 2) | (persistent ? 2 : 0) | (current ? 1 : 0);
+        b[len++] = payload_len;
+        if (payload_len)
+                memcpy(&b[len], payload, payload_len);
+        return len + payload_len;
+}
+
+/* GET CONFIGURATION: a read-only DVD-ROM drive (profiles DVD-ROM and CD-ROM). */
+static int dvd_get_configuration(scsi_cd_data_t *data, uint8_t *cdb) {
+        int rt = cdb[1] & 3;
+        int start = (cdb[2] << 8) | cdb[3];
+        int alloc_length = (cdb[7] << 8) | cdb[8];
+        int disc = cd_disc_type();
+        int is_cd = disc == CD_DISC_CD, is_dvd = disc == CD_DISC_DVD;
+        int profile = is_dvd ? 0x0010 : (is_cd ? 0x0008 : 0);
+        uint8_t *b = data->data_in;
+        int len = 8;
+
+        memset(b, 0, 512);
+        b[6] = profile >> 8;
+        b[7] = profile & 0xff;
+
+        uint8_t profiles[8] = {0x00, 0x10, is_dvd, 0, 0x00, 0x08, is_cd, 0};
+        len = add_feature(b, len, rt, start, 0x0000, 0, 1, 1, profiles, sizeof(profiles));
+        uint8_t core[4] = {0, 0, 0, data->is_atapi ? 2 : 1}; /* Physical interface: ATAPI / SCSI */
+        len = add_feature(b, len, rt, start, 0x0001, 0, 1, 1, core, sizeof(core));
+        uint8_t morphing[4] = {0x02, 0, 0, 0}; /* OCEvent */
+        len = add_feature(b, len, rt, start, 0x0002, 1, 1, 1, morphing, sizeof(morphing));
+        uint8_t removable[4] = {0x29, 0, 0, 0}; /* Tray, eject, lock */
+        len = add_feature(b, len, rt, start, 0x0003, 0, 1, 1, removable, sizeof(removable));
+        uint8_t random_read[8] = {0, 0, 0x08, 0x00, 0, is_dvd ? 16 : 1, 0, 0}; /* 2048 byte blocks */
+        len = add_feature(b, len, rt, start, 0x0010, 0, 0, is_cd || is_dvd, random_read, sizeof(random_read));
+        uint8_t cd_read[4] = {0, 0, 0, 0};
+        len = add_feature(b, len, rt, start, 0x001e, 0, 0, is_cd, cd_read, sizeof(cd_read));
+        len = add_feature(b, len, rt, start, 0x001f, 0, 0, is_dvd, NULL, 0);
+        uint8_t css[4] = {0, 0, 0, 1}; /* CSS version 1 */
+        len = add_feature(b, len, rt, start, 0x0106, 0, 0, is_dvd, css, sizeof(css));
+
+        b[0] = (len - 4) >> 24;
+        b[1] = (len - 4) >> 16;
+        b[2] = (len - 4) >> 8;
+        b[3] = (len - 4) & 0xff;
+
+        data->bytes_expected = data->data_pos_write = MIN(alloc_length, len);
+        data->cmd_pos = CMD_POS_IDLE;
+        return data->bytes_expected ? SCSI_PHASE_DATA_IN : SCSI_PHASE_STATUS;
+}
+
+/* Hand a DVD command to the physical drive. Only REPORT KEY, SEND KEY and READ DVD STRUCTURE ever get
+   here: they read disc structures or do the CSS handshake, nothing that writes to the medium. */
+static int dvd_passthrough(scsi_cd_data_t *data, uint8_t *cdb, uint8_t *buf, int len, int data_in) {
+        uint8_t sense[18];
+        int status;
+
+        if (!(cdb[0] == GPCMD_REPORT_KEY || cdb[0] == GPCMD_SEND_KEY || cdb[0] == GPCMD_READ_DVD_STRUCTURE)) {
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_ILLEGAL_OPCODE, 0);
+                return SCSI_PHASE_STATUS;
+        }
+        if (len > BUFFER_SIZE)
+                len = BUFFER_SIZE;
+        memset(sense, 0, sizeof(sense));
+        status = atapi->passthrough(cdb, 12, buf, &len, data_in, sense);
+        data->cmd_pos = CMD_POS_IDLE;
+        if (status == STATUS_CHECK_CONDITION && (sense[2] & 0x0f)) {
+                atapi_cmd_error(data, sense[2] & 0x0f, sense[12], sense[13]);
+                return SCSI_PHASE_STATUS;
+        }
+        if (status != STATUS_GOOD) {
+                atapi_cmd_error(data, SENSE_NOT_READY, ASC_MEDIUM_NOT_PRESENT, 0);
+                return SCSI_PHASE_STATUS;
+        }
+        if (!data_in)
+                return SCSI_PHASE_STATUS;
+        data->bytes_expected = data->data_pos_write = len;
+        return len ? SCSI_PHASE_DATA_IN : SCSI_PHASE_STATUS;
+}
+
+/* READ DVD STRUCTURE for drives that can't pass it through (images): physical format and copyright. */
+static int dvd_read_structure(scsi_cd_data_t *data, uint8_t *cdb) {
+        int format = cdb[7];
+        int alloc_length = (cdb[8] << 8) | cdb[9];
+        uint8_t *b = data->data_in;
+        int len;
+
+        if (atapi->passthrough)
+                return dvd_passthrough(data, cdb, b, alloc_length, 1);
+
+        if (cd_disc_type() != CD_DISC_DVD) {
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_INCOMPATIBLE_FORMAT, 0);
+                return SCSI_PHASE_STATUS;
+        }
+        if (cdb[6] != 0) { /* layer: single layer only */
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_INV_FIELD_IN_CMD_PACKET, 0);
+                return SCSI_PHASE_STATUS;
+        }
+
+        memset(b, 0, 2052);
+        switch (format) {
+        case 0x00: { /* Physical format information */
+                uint32_t end = 0x30000 + atapi->size() - 1;
+
+                len = 2052;
+                b[4] = 0x01; /* DVD-ROM, part version 1 */
+                b[5] = 0x0f; /* 120mm disc, maximum rate not specified */
+                b[6] = 0x01; /* 1 layer, parallel track path, embossed */
+                b[7] = 0x10; /* 0.267 um/bit, 0.74 um/track */
+                b[9] = 0x03; /* Starting physical sector 0x030000 */
+                b[13] = end >> 16;
+                b[14] = end >> 8;
+                b[15] = end;
+                break;
+        }
+        case 0x01: /* Copyright information: no protection, all regions */
+                len = 8;
+                break;
+        default:
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_INV_FIELD_IN_CMD_PACKET, 0);
+                return SCSI_PHASE_STATUS;
+        }
+        b[0] = (len - 2) >> 8;
+        b[1] = (len - 2) & 0xff;
+
+        data->bytes_expected = data->data_pos_write = MIN(alloc_length, len);
+        data->cmd_pos = CMD_POS_IDLE;
+        return data->bytes_expected ? SCSI_PHASE_DATA_IN : SCSI_PHASE_STATUS;
+}
+
+/* REPORT KEY: passed through to a host drive (CSS authentication); images only answer the RPC state. */
+static int dvd_report_key(scsi_cd_data_t *data, uint8_t *cdb) {
+        int alloc_length = (cdb[8] << 8) | cdb[9];
+        int key_format = cdb[10] & 0x3f;
+        uint8_t *b = data->data_in;
+
+        if (atapi->passthrough)
+                return dvd_passthrough(data, cdb, b, alloc_length, 1);
+
+        if (key_format != 0x08) { /* Only RPC state without CSS */
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_INV_FIELD_IN_CMD_PACKET, 0);
+                return SCSI_PHASE_STATUS;
+        }
+        memset(b, 0, 8);
+        b[1] = 6;
+        b[4] = (4 << 3) | 5; /* No region set, 4 vendor resets and 5 user changes left */
+        b[5] = 0x00;         /* Playable in every region */
+        b[6] = 0x01;         /* RPC Phase II */
+        data->bytes_expected = data->data_pos_write = MIN(alloc_length, 8);
+        data->cmd_pos = CMD_POS_IDLE;
+        return data->bytes_expected ? SCSI_PHASE_DATA_IN : SCSI_PHASE_STATUS;
 }
 
 static void *scsi_cd_init(scsi_bus_t *bus, int id) {
@@ -728,9 +925,9 @@ static uint32_t ide_atapi_mode_sense(scsi_cd_data_t *data, uint32_t pos, uint8_t
                 //                pclog("Capabilities page\n");
                 /* &2A - CD-ROM capabilities and mechanical status */
                 buf[pos++] = GPMODE_CAPABILITIES_PAGE;
-                buf[pos++] = 0x12; /* Page length */
-                buf[pos++] = 0;
-                buf[pos++] = 0;    /* CD-R methods */
+                buf[pos++] = 0x12;                                   /* Page length */
+                buf[pos++] = cd_models[data->cur_model].is_dvd ? 0x08 : 0; /* DVD-ROM read */
+                buf[pos++] = 0;                                      /* CD-R methods */
                 buf[pos++] = 1;    /* Supports audio play, not multisession */
                 buf[pos++] = 0;    /* Some other stuff not supported */
                 buf[pos++] = 0;    /* Some other stuff not supported (lock state + eject) */
@@ -870,6 +1067,11 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
         if (is_error) {
                 //                fatal("Clear error state\n");
                 is_error = 0;
+                return SCSI_PHASE_STATUS;
+        }
+
+        if (is_dvd_command(cdb[0]) && !cd_models[data->cur_model].is_dvd) {
+                atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_ILLEGAL_OPCODE, 0);
                 return SCSI_PHASE_STATUS;
         }
 
@@ -1532,7 +1734,9 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                 return SCSI_PHASE_STATUS;
 
         case GPCMD_READ_CDROM_CAPACITY:
-                size = atapi->size();
+                size = atapi->size(); /* number of sectors */
+                if (size)
+                        size--; /* READ CAPACITY returns the last LBA */
                 scsi_add_data(data, (size >> 24) & 0xff);
                 scsi_add_data(data, (size >> 16) & 0xff);
                 scsi_add_data(data, (size >> 8) & 0xff);
@@ -1550,7 +1754,30 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                 data->cmd_pos = CMD_POS_IDLE;
                 return SCSI_PHASE_STATUS;
 
-        case GPCMD_SEND_DVD_STRUCTURE:
+        case GPCMD_GET_CONFIGURATION:
+                return dvd_get_configuration(data, cdb);
+
+        case GPCMD_READ_DVD_STRUCTURE:
+                return dvd_read_structure(data, cdb);
+
+        case GPCMD_REPORT_KEY:
+                return dvd_report_key(data, cdb);
+
+        case GPCMD_SEND_KEY:
+                if (!atapi->passthrough) {
+                        atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_INV_FIELD_IN_CMD_PACKET, 0);
+                        return SCSI_PHASE_STATUS;
+                }
+                if (data->cmd_pos == CMD_POS_IDLE) {
+                        data->cmd_pos = CMD_POS_TRANSFER;
+                        data->bytes_required = (cdb[8] << 8) | cdb[9];
+                        if (data->bytes_required)
+                                return SCSI_PHASE_DATA_OUT;
+                }
+                if (data->bytes_received == data->bytes_required)
+                        return dvd_passthrough(data, cdb, data->data_out, data->bytes_required, 0);
+                return SCSI_PHASE_DATA_OUT;
+
         default:
                 atapi_cmd_error(data, SENSE_ILLEGAL_REQUEST, ASC_ILLEGAL_OPCODE, 0);
                 return SCSI_PHASE_STATUS;

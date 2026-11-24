@@ -34,6 +34,7 @@ extern "C" {
 #include "cassette.h"
 #include "cdrom-ioctl.h"
 #include "cdrom-image.h"
+#include "cdrom-host.h"
 #include "config.h"
 #include "video.h"
 #include "ide.h"
@@ -48,8 +49,12 @@ extern "C" {
 #include "viewer.h"
 }
 
+#include <vector>
+
+/* Host drives are numbered by their position in host_cdrom_drives (IDM_CDROM_REAL + index). */
 #define IDM_CDROM_REAL 1500
-#define IDM_CDROM_DEVICE 1501
+#define IDM_CDROM_DEVICE (IDM_CDROM_REAL + CDROM_HOST_MAX_DRIVES)
+#define IDM_CDROM_MISSING (IDM_CDROM_DEVICE + 1)
 
 #define MIN_SND_BUF 50
 
@@ -119,17 +124,83 @@ static void wx_saveconfig() {
         wx_config_set_int(CFG_GLOBAL, "wxWidgets", "window_y", wx_window_y);
 }
 
+static std::vector<cdrom_host_drive_t> host_cdrom_drives;
+
+/* Index in host_cdrom_drives of the drive the emulated CD-ROM is using, or -1. */
+static int selected_host_cdrom() {
+        if (cdrom_drive <= 0 || cdrom_drive == CDROM_IMAGE)
+                return -1;
+        for (size_t i = 0; i < host_cdrom_drives.size(); i++) {
+#if __linux__
+                if (!strcmp(host_cdrom_drives[i].path, cdrom_device_path))
+                        return (int)i;
+#else
+                if (host_cdrom_drives[i].id == cdrom_drive)
+                        return (int)i;
+#endif
+        }
+        return -1;
+}
+
 static void update_cdrom_menu() {
+        if (!menu)
+                return;
+        int host = selected_host_cdrom();
         if (cdrom_drive == CDROM_IMAGE)
                 wx_checkmenuitem(menu, XRCID("IDM_CDROM_IMAGE"), true);
+        else if (host >= 0)
+                wx_checkmenuitem(menu, IDM_CDROM_REAL + host, true);
         else if (cdrom_drive > 0)
 #if __linux__
                 wx_checkmenuitem(menu, IDM_CDROM_DEVICE, true);
 #else
-                wx_checkmenuitem(menu, IDM_CDROM_REAL + cdrom_drive, true);
+                wx_checkmenuitem(menu, IDM_CDROM_MISSING, true);
 #endif
         else
                 wx_checkmenuitem(menu, XRCID("IDM_CDROM_EMPTY"), true);
+}
+
+/* Rescan the host's optical drives and rebuild their entries in the CD-ROM menu, so drives
+   plugged in (e.g. over USB) after PCem started show up and unplugged ones go away. */
+void wx_refresh_host_cdrom_menu() {
+        if (!menu)
+                return;
+        wxMenu *cdrom_submenu = wx_getsubmenu(menu, XRCID("IDM_CDROM"));
+        if (!cdrom_submenu)
+                return;
+
+        for (int i = IDM_CDROM_REAL; i <= IDM_CDROM_MISSING; i++) {
+#if __linux__
+                if (i == IDM_CDROM_DEVICE)
+                        continue;
+#endif
+                wxMenuItem *item = cdrom_submenu->FindChildItem(i);
+                if (item)
+                        cdrom_submenu->Destroy(item);
+        }
+
+        cdrom_host_drive_t drives[CDROM_HOST_MAX_DRIVES];
+        int n = cdrom_host_enumerate(drives, CDROM_HOST_MAX_DRIVES);
+        host_cdrom_drives.assign(drives, drives + n);
+
+        for (int i = 0; i < n; i++) {
+                char desc[256];
+                cdrom_host_describe(&drives[i], desc, sizeof(desc));
+                cdrom_submenu->Append(IDM_CDROM_REAL + i, wxString::Format("Host drive %s", desc), wxEmptyString,
+                                      wxITEM_RADIO);
+        }
+#if !__linux__
+        /* The selected drive was unplugged: list it, so the radio group doesn't point at another entry. */
+        if (cdrom_drive > 0 && cdrom_drive != CDROM_IMAGE && selected_host_cdrom() < 0) {
+#ifdef _WIN32
+                wxString label = wxString::Format("Host drive %c: (disconnected)", cdrom_drive);
+#else
+                wxString label = wxString::Format("Host drive disk%i (disconnected)", cdrom_drive);
+#endif
+                cdrom_submenu->Append(IDM_CDROM_MISSING, label, wxEmptyString, wxITEM_RADIO)->Enable(false);
+        }
+#endif
+        update_cdrom_menu();
 }
 
 static void wx_initmenu() {
@@ -139,32 +210,14 @@ static void wx_initmenu() {
         if (!cdrom_submenu)
                 return;
 
-#ifdef _WIN32
-        for (int c = 'A'; c <= 'Z'; c++) {
-                char s[32];
-                snprintf(s, sizeof(s), "%c:\\", c);
-                if (GetDriveTypeA(s) == DRIVE_CDROM)
-                        cdrom_submenu->Append(IDM_CDROM_REAL + c, wxString::Format("Host CD/DVD Drive (%c:)", c), wxEmptyString,
-                                              wxITEM_RADIO);
-        }
-#elif __linux__
+#if __linux__
         cdrom_submenu->Append(IDM_CDROM_DEVICE, "Host CD/DVD Drive...", wxEmptyString, wxITEM_RADIO);
-#elif __APPLE__
-        for (int c = 1; c < 99; c++) {
-                char s[80];
-                snprintf(s, sizeof(s), "disk%i", c);
-                int fd = opendev(s, O_RDONLY, 0, NULL);
-                if (fd > 0) {
-                        close(fd);
-                        cdrom_submenu->Append(IDM_CDROM_REAL + c, wxString::Format("Host CD/DVD Drive (/dev/disk%i)", c),
-                                              wxEmptyString, wxITEM_RADIO);
-                }
-        }
 #endif
+        wx_refresh_host_cdrom_menu();
 }
 
 static int wx_setupmenu(void *data) {
-        update_cdrom_menu();
+        wx_refresh_host_cdrom_menu();
         update_viewers_menu(menu);
         wx_checkmenuitem(menu, xrcid_index("IDM_VID_RESOLUTION", vid_resize), true);
         wx_enablemenuitem(menu, XRCID("IDM_VID_SCALE_MENU"), !vid_resize);
@@ -583,6 +636,7 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
                         ioctl_set_drive(0);
                         old_cdrom_drive = cdrom_drive;
                         cdrom_drive = 0;
+                        cdrom_host_remember(0);
                         saveconfig(NULL);
                 }
                 update_cdrom_menu();
@@ -596,6 +650,7 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
                                 eject_cdrom();
                                 image_open(temp_image_path);
                                 cdrom_drive = CDROM_IMAGE;
+                                cdrom_host_remember(0);
                                 saveconfig(NULL);
                         }
                 }
@@ -610,21 +665,35 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
                         wx_strlcpy(cdrom_device_path, path, sizeof(cdrom_device_path));
                         ioctl_set_drive(1);
                         cdrom_drive = 1;
+                        cdrom_host_remember(1);
                         saveconfig(NULL);
-                        update_cdrom_menu();
                 }
+                wx_refresh_host_cdrom_menu();
+#endif
+        } else if (id == XRCID("IDM_CDROM_REFRESH")) {
+                wx_refresh_host_cdrom_menu();
+        } else if (id >= IDM_CDROM_REAL && id < IDM_CDROM_REAL + CDROM_HOST_MAX_DRIVES) {
+                size_t index = id - IDM_CDROM_REAL;
+                if (index < host_cdrom_drives.size()) {
+                        const cdrom_host_drive_t &drive = host_cdrom_drives[index];
+#if __linux__
+                        bool changed = cdrom_drive != 1 || strcmp(cdrom_device_path, drive.path);
 #else
-        } else if (id >= IDM_CDROM_REAL && id < IDM_CDROM_REAL + 100) {
-                int new_cdrom_drive = id - IDM_CDROM_REAL;
-                if (cdrom_drive != new_cdrom_drive) {
-                        old_cdrom_drive = cdrom_drive;
-                        eject_cdrom();
-                        ioctl_set_drive(new_cdrom_drive);
-                        cdrom_drive = new_cdrom_drive;
-                        saveconfig(NULL);
+                        bool changed = cdrom_drive != drive.id;
+#endif
+                        if (changed) {
+                                old_cdrom_drive = cdrom_drive;
+                                eject_cdrom();
+#if __linux__
+                                wx_strlcpy(cdrom_device_path, drive.path, sizeof(cdrom_device_path));
+#endif
+                                ioctl_set_drive(drive.id);
+                                cdrom_drive = drive.id;
+                                cdrom_host_remember(cdrom_drive);
+                                saveconfig(NULL);
+                        }
                 }
                 update_cdrom_menu();
-#endif
         } else if (id >= IDM_VIEWER && id < IDM_VIEWER_MAX) {
                 viewer_open(hwnd, id - IDM_VIEWER);
         }

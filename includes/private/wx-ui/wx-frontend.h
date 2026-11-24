@@ -11,6 +11,7 @@ bool wx_load_config(wxWindow *hwnd);
 int wx_start(wxWindow *hwnd);
 int wx_stop(wxWindow *hwnd);
 void wx_handle_command(wxWindow *hwnd, int id, bool checked);
+void wx_refresh_host_cdrom_menu();
 
 bool wx_getfile(wxWindow *parent, const wxString &wildcard, const wxString &path, wxString &result,
                 const wxString &caption = "Open");

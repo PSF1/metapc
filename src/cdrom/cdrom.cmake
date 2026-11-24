@@ -1,11 +1,13 @@
 set(PCEM_PRIVATE_API ${PCEM_PRIVATE_API}
         ${CMAKE_SOURCE_DIR}/includes/private/cdrom/cdrom-image.h
+        ${CMAKE_SOURCE_DIR}/includes/private/cdrom/cdrom-host.h
         ${CMAKE_SOURCE_DIR}/includes/private/cdrom/cdrom-ioctl.h
         ${CMAKE_SOURCE_DIR}/includes/private/cdrom/cdrom-null.h
         )
 
 set(PCEM_SRC ${PCEM_SRC}
         cdrom/cdrom-image.cc
+        cdrom/cdrom-host.c
         cdrom/cdrom-null.c
         )
 

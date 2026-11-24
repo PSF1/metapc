@@ -45,9 +45,15 @@ static uint32_t ioctl_cd_pos = 0, ioctl_cd_end = 0;
 #define BUF_SIZE 32768
 static int16_t cd_buffer[BUF_SIZE];
 static int cd_buflen = 0;
+static HANDLE ioctl_open_handle(void) {
+        return CreateFile(ioctl_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0,
+                          NULL);
+}
+
 void ioctl_audio_callback(int16_t *output, int len) {
         RAW_READ_INFO in;
         DWORD count;
+        HANDLE h = INVALID_HANDLE_VALUE;
 
         //	return;
         //        pclog("Audio callback %08X %08X %i %i %i %04X %i\n", ioctl_cd_pos, ioctl_cd_end, ioctl_cd_state, cd_buflen, len,
@@ -56,13 +62,14 @@ void ioctl_audio_callback(int16_t *output, int len) {
                 return;
         while (cd_buflen < len) {
                 if (ioctl_cd_pos < ioctl_cd_end) {
-                        in.DiskOffset.LowPart = (ioctl_cd_pos - 150) * 2048;
-                        in.DiskOffset.HighPart = 0;
+                        in.DiskOffset.QuadPart = (LONGLONG)(ioctl_cd_pos - 150) * 2048;
                         in.SectorCount = 1;
                         in.TrackMode = CDDA;
-                        ioctl_open(0);
+                        /* This runs on the sound thread: use a private handle, never hIOCTL. */
+                        if (h == INVALID_HANDLE_VALUE)
+                                h = ioctl_open_handle();
                         //        		pclog("Read to %i\n", cd_buflen);
-                        if (!DeviceIoControl(hIOCTL, IOCTL_CDROM_RAW_READ, &in, sizeof(in), &cd_buffer[cd_buflen], 2352, &count,
+                        if (!DeviceIoControl(h, IOCTL_CDROM_RAW_READ, &in, sizeof(in), &cd_buffer[cd_buflen], 2352, &count,
                                              NULL)) {
                                 //                                pclog("DeviceIoControl returned false\n");
                                 memset(&cd_buffer[cd_buflen], 0, (BUF_SIZE - cd_buflen) * 2);
@@ -73,13 +80,14 @@ void ioctl_audio_callback(int16_t *output, int len) {
                                 ioctl_cd_pos++;
                                 cd_buflen += (2352 / 2);
                         }
-                        ioctl_close();
                 } else {
                         memset(&cd_buffer[cd_buflen], 0, (BUF_SIZE - cd_buflen) * 2);
                         ioctl_cd_state = CD_STOPPED;
                         cd_buflen = len;
                 }
         }
+        if (h != INVALID_HANDLE_VALUE)
+                CloseHandle(h);
         memcpy(output, cd_buffer, len * 2);
         //        for (c = 0; c < BUF_SIZE - len; c++)
         //            cd_buffer[c] = cd_buffer[c + cd_buflen];
@@ -241,28 +249,42 @@ static int ioctl_ready(void) {
         return 1;
 }
 
-static int ioctl_get_last_block(unsigned char starttrack, int msf, int maxlen, int single) {
-        long size;
-        int c;
+/* Number of 2048-byte sectors on the disc. Uses the device length, since a leadout in MSF
+   can't describe a disc longer than 255 minutes (i.e. any DVD). Falls back to the TOC leadout. */
+static uint32_t ioctl_get_capacity(void) {
+        GET_LENGTH_INFORMATION len_info;
+        union {
+                DISK_GEOMETRY_EX geom;
+                uint8_t raw[256];
+        } geom;
+        CDROM_READ_TOC_EX toc_ex;
         CDROM_TOC lbtoc;
-        int lb = 0;
+        DWORD size;
+        LONGLONG bytes = 0;
 
         if (!cdrom_drive)
                 return 0;
 
-        ioctl_cd_state = CD_STOPPED;
-
         ioctl_open(0);
-        DeviceIoControl(hIOCTL, IOCTL_CDROM_READ_TOC, NULL, 0, &lbtoc, sizeof(lbtoc), (LPDWORD)&size, NULL);
-        ioctl_close();
-        tocvalid = 1;
-        for (c = 0; c <= lbtoc.LastTrack; c++) {
-                uint32_t address;
-                address = MSFtoLBA(toc.TrackData[c].Address[1], toc.TrackData[c].Address[2], toc.TrackData[c].Address[3]);
-                if (address > lb)
-                        lb = address;
+        if (DeviceIoControl(hIOCTL, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &len_info, sizeof(len_info), &size, NULL))
+                bytes = len_info.Length.QuadPart;
+        else if (DeviceIoControl(hIOCTL, IOCTL_CDROM_GET_DRIVE_GEOMETRY_EX, NULL, 0, &geom, sizeof(geom), &size, NULL))
+                bytes = geom.geom.DiskSize.QuadPart;
+        if (bytes <= 0) {
+                /* TOC in LBA format, starting at the leadout (0xAA). */
+                memset(&toc_ex, 0, sizeof(toc_ex));
+                memset(&lbtoc, 0, sizeof(lbtoc));
+                toc_ex.Format = CDROM_READ_TOC_EX_FORMAT_TOC;
+                toc_ex.Msf = 0;
+                toc_ex.SessionTrack = 0xaa;
+                if (DeviceIoControl(hIOCTL, IOCTL_CDROM_READ_TOC_EX, &toc_ex, sizeof(toc_ex), &lbtoc, sizeof(lbtoc), &size,
+                                    NULL)) {
+                        UCHAR *a = lbtoc.TrackData[0].Address;
+                        bytes = (LONGLONG)(((uint32_t)a[0] << 24) | (a[1] << 16) | (a[2] << 8) | a[3]) * 2048;
+                }
         }
-        return lb;
+        ioctl_close();
+        return (uint32_t)(bytes / 2048);
 }
 
 static int ioctl_medium_changed(void) {
@@ -282,7 +304,7 @@ static int ioctl_medium_changed(void) {
                 tocvalid = 1;
                 if (cdrom_drive != old_cdrom_drive)
                         old_cdrom_drive = cdrom_drive;
-                cdrom_capacity = ioctl_get_last_block(0, 0, 4096, 0);
+                cdrom_capacity = ioctl_get_capacity();
                 return 0;
         }
         if ((ltoc.TrackData[ltoc.LastTrack].Address[1] != toc.TrackData[toc.LastTrack].Address[1]) ||
@@ -290,7 +312,7 @@ static int ioctl_medium_changed(void) {
             (ltoc.TrackData[ltoc.LastTrack].Address[3] != toc.TrackData[toc.LastTrack].Address[3])) {
                 ioctl_cd_state = CD_STOPPED;
                 toc = ltoc;
-                cdrom_capacity = ioctl_get_last_block(0, 0, 4096, 0);
+                cdrom_capacity = ioctl_get_capacity();
                 return 1; /* TOC mismatches. */
         }
         return 0; /* None of the above, return 0. */
@@ -399,10 +421,82 @@ static void ioctl_load(void) {
         ioctl_open(0);
         DeviceIoControl(hIOCTL, IOCTL_STORAGE_LOAD_MEDIA, NULL, 0, NULL, 0, (LPDWORD)&size, NULL);
         ioctl_close();
-        cdrom_capacity = ioctl_get_last_block(0, 0, 4096, 0);
+        cdrom_capacity = ioctl_get_capacity();
 }
 
 #define IOCTL_DATA_BUFFER 8192
+#define IOCTL_SPTI_MAX 65536
+
+typedef struct {
+        SCSI_PASS_THROUGH spt;
+        ULONG filler;
+        UCHAR sense[32];
+        UCHAR data[IOCTL_SPTI_MAX];
+} spti_buffered_t;
+
+/* Send a CDB to the physical drive (buffered SPTI). See ATAPI.passthrough. */
+static int ioctl_passthrough(const uint8_t *cdb, int cdb_len, uint8_t *buf, int *len, int data_in, uint8_t *sense) {
+        spti_buffered_t *s;
+        DWORD ret;
+        int status = -1;
+        int xfer = *len;
+
+        if (!cdrom_drive || cdb_len > 16 || xfer < 0 || xfer > IOCTL_SPTI_MAX)
+                return -1;
+        s = calloc(1, sizeof(*s));
+        if (!s)
+                return -1;
+        s->spt.Length = sizeof(SCSI_PASS_THROUGH);
+        s->spt.CdbLength = cdb_len;
+        s->spt.SenseInfoLength = 18;
+        s->spt.DataIn = xfer ? (data_in ? SCSI_IOCTL_DATA_IN : SCSI_IOCTL_DATA_OUT) : SCSI_IOCTL_DATA_UNSPECIFIED;
+        s->spt.DataTransferLength = xfer;
+        s->spt.TimeOutValue = 30;
+        s->spt.DataBufferOffset = offsetof(spti_buffered_t, data);
+        s->spt.SenseInfoOffset = offsetof(spti_buffered_t, sense);
+        memcpy(s->spt.Cdb, cdb, cdb_len);
+        if (!data_in && xfer)
+                memcpy(s->data, buf, xfer);
+
+        ioctl_open(0);
+        if (hIOCTL && DeviceIoControl(hIOCTL, IOCTL_SCSI_PASS_THROUGH, s, sizeof(*s), s, sizeof(*s), &ret, NULL)) {
+                status = s->spt.ScsiStatus;
+                *len = (s->spt.DataTransferLength <= (ULONG)xfer) ? s->spt.DataTransferLength : xfer;
+                if (data_in && *len)
+                        memcpy(buf, s->data, *len);
+                if (sense)
+                        memcpy(sense, s->sense, 18);
+        } else
+                *len = 0;
+        ioctl_close();
+        free(s);
+        return status;
+}
+
+/* CD or DVD, from the drive's current MMC profile; falls back to the disc size. */
+static int ioctl_disc_type(void) {
+        uint8_t cdb[10] = {0x46, 0x02, 0, 0, 0, 0, 0, 0, 8, 0}; /* GET CONFIGURATION, header only */
+        uint8_t buf[8];
+        int len = sizeof(buf);
+        uint32_t capacity;
+
+        if (!cdrom_drive)
+                return CD_DISC_NONE;
+        if (ioctl_passthrough(cdb, sizeof(cdb), buf, &len, 1, NULL) == 0 && len >= 8) {
+                int profile = (buf[6] << 8) | buf[7];
+
+                if (profile >= 0x08 && profile <= 0x0a)
+                        return CD_DISC_CD;
+                if (profile >= 0x10)
+                        return CD_DISC_DVD; /* DVD-ROM/-R/-RW/+R/+RW/DL (and anything newer, read as DVD) */
+                if (profile == 0)
+                        return CD_DISC_NONE;
+        }
+        capacity = ioctl_get_capacity();
+        if (!capacity)
+                return CD_DISC_NONE;
+        return (capacity > 450000) ? CD_DISC_DVD : CD_DISC_CD; /* 450000 sectors ~ a 100 minute CD */
+}
 
 typedef struct _SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER {
         SCSI_PASS_THROUGH_DIRECT spt;
@@ -421,10 +515,14 @@ static int ioctl_readsector(uint8_t *b, int sector, int count) {
         if (ioctl_cd_state == CD_PLAYING)
                 return -1;
 
+        /* ReadFile() past the end of the disc "succeeds" with 0 bytes: reject it here. */
+        if (sector < 0 || (cdrom_capacity && (uint32_t)sector + count > cdrom_capacity))
+                return -1;
+
         ioctl_cd_state = CD_STOPPED;
-        pos.QuadPart = sector * 2048;
+        pos.QuadPart = (LONGLONG)sector * 2048;
         ioctl_open(0);
-        SetFilePointer(hIOCTL, pos.LowPart, &pos.HighPart, FILE_BEGIN);
+        SetFilePointerEx(hIOCTL, pos, NULL, FILE_BEGIN);
         status = ReadFile(hIOCTL, b, count * 2048, (LPDWORD)&size, NULL);
         ioctl_close();
 
@@ -462,7 +560,8 @@ static int ioctl_readsector(uint8_t *b, int sector, int count) {
                 swb.spt.SenseInfoLength = 32;
 
                 if (DeviceIoControl(hIOCTL, IOCTL_SCSI_PASS_THROUGH_DIRECT, &swb, sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER),
-                                    &swb, sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER), &returned, NULL)) {
+                                    &swb, sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER), &returned, NULL) &&
+                    swb.spt.ScsiStatus == 0) {
                         memcpy(b, data_buffer, count * 2048);
                         status = 1;
                 } else
@@ -525,11 +624,23 @@ static int ioctl_readtoc(unsigned char *b, unsigned char starttrack, int msf, in
         long size;
         int c, d;
         uint32_t temp;
+        CDROM_READ_TOC_EX toc_ex;
+        CDROM_TOC lba_toc;
+        int lba_valid = 0;
         if (!cdrom_drive)
                 return 0;
         ioctl_cd_state = CD_STOPPED;
         ioctl_open(0);
         DeviceIoControl(hIOCTL, IOCTL_CDROM_READ_TOC, NULL, 0, &toc, sizeof(toc), (LPDWORD)&size, NULL);
+        if (!msf) {
+                memset(&toc_ex, 0, sizeof(toc_ex));
+                memset(&lba_toc, 0, sizeof(lba_toc));
+                toc_ex.Format = CDROM_READ_TOC_EX_FORMAT_TOC;
+                toc_ex.Msf = 0;
+                toc_ex.SessionTrack = toc.FirstTrack;
+                lba_valid = DeviceIoControl(hIOCTL, IOCTL_CDROM_READ_TOC_EX, &toc_ex, sizeof(toc_ex), &lba_toc, sizeof(lba_toc),
+                                            (LPDWORD)&size, NULL);
+        }
         ioctl_close();
         tocvalid = 1;
         //        pclog("Read TOC done! %i\n",single);
@@ -562,8 +673,12 @@ static int ioctl_readtoc(unsigned char *b, unsigned char starttrack, int msf, in
                         b[len++] = toc.TrackData[c].Address[1];
                         b[len++] = toc.TrackData[c].Address[2];
                         b[len++] = toc.TrackData[c].Address[3];
+                } else if (lba_valid) {
+                        memcpy(&b[len], lba_toc.TrackData[c].Address, 4);
+                        len += 4;
                 } else {
-                        temp = MSFtoLBA(toc.TrackData[c].Address[1], toc.TrackData[c].Address[2], toc.TrackData[c].Address[3]);
+                        temp = MSFtoLBA(toc.TrackData[c].Address[1], toc.TrackData[c].Address[2], toc.TrackData[c].Address[3]) -
+                               150;
                         b[len++] = temp >> 24;
                         b[len++] = temp >> 16;
                         b[len++] = temp >> 8;
@@ -717,11 +832,11 @@ void ioctl_set_drive(char d) {
 int ioctl_open(char d) {
         if (hIOCTL)
                 ioctl_close();
-        hIOCTL = CreateFile(ioctl_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0,
-                            NULL);
-        if (!hIOCTL) {
-                // fatal("IOCTL");
-        }
+        hIOCTL = ioctl_open_handle();
+        /* Drive unplugged or no access: leave hIOCTL NULL so DeviceIoControl() fails and the
+           guest just sees "no medium". */
+        if (hIOCTL == INVALID_HANDLE_VALUE)
+                hIOCTL = NULL;
         return 0;
 }
 
@@ -755,4 +870,6 @@ static ATAPI ioctl_atapi = {ioctl_ready,
                             ioctl_status,
                             ioctl_is_track_audio,
                             ioctl_stop,
-                            ioctl_exit};
+                            ioctl_exit,
+                            ioctl_disc_type,
+                            ioctl_passthrough};

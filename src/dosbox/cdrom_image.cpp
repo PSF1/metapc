@@ -54,15 +54,17 @@ CDROM_Interface_Image::BinaryFile::~BinaryFile() {
 	delete file;
 }
 
-bool CDROM_Interface_Image::BinaryFile::read(Bit8u *buffer, int seek, int count) {
-	file->seekg(seek, ios::beg);
+bool CDROM_Interface_Image::BinaryFile::read(Bit8u *buffer, int64_t seek, int count) {
+	file->clear();
+	file->seekg((streamoff)seek, ios::beg);
 	file->read((char *)buffer, count);
 	return !(file->fail());
 }
 
-int CDROM_Interface_Image::BinaryFile::getLength() {
+int64_t CDROM_Interface_Image::BinaryFile::getLength() {
+	file->clear();
 	file->seekg(0, ios::end);
-	int length = (int)file->tellg();
+	int64_t length = (int64_t)file->tellg();
 	if (file->fail())
 		return -1;
 	return length;
@@ -100,6 +102,10 @@ bool CDROM_Interface_Image::GetAudioTracks(int &stTrack, int &end, TMSF &leadOut
 	end = (int)(tracks.size() - 1);
 	FRAMES_TO_MSF(tracks[tracks.size() - 1].start + 150, &leadOut.min, &leadOut.sec, &leadOut.fr);
 	return true;
+}
+
+int CDROM_Interface_Image::GetLeadoutSector() {
+	return tracks.empty() ? 0 : tracks[tracks.size() - 1].start;
 }
 
 bool CDROM_Interface_Image::GetAudioTrackInfo(int track, int &track_number, TMSF &start, unsigned char &attr) {
@@ -171,7 +177,7 @@ bool CDROM_Interface_Image::ReadSector(Bit8u *buffer, bool raw, unsigned long se
 	if (track < 0)
 		return false;
 
-	int seek = tracks[track].skip + (sector - tracks[track].start) * tracks[track].sectorSize;
+	int64_t seek = tracks[track].skip + (int64_t)(sector - tracks[track].start) * tracks[track].sectorSize;
 	int length = (raw ? RAW_SECTOR_SIZE : COOKED_SECTOR_SIZE);
 	if (tracks[track].sectorSize != RAW_SECTOR_SIZE && raw)
 		return false;
@@ -214,7 +220,7 @@ bool CDROM_Interface_Image::LoadIsoFile(char *filename) {
 	} else
 		return false;
 
-	track.length = track.file->getLength() / track.sectorSize;
+	track.length = (int)(track.file->getLength() / track.sectorSize);
 	tracks.push_back(track);
 
 	// leadout track
@@ -406,7 +412,7 @@ bool CDROM_Interface_Image::AddTrack(Track &curr, int &shift, int prestart, int 
 	if (tracks.empty()) {
 		if (curr.number != 1)
 			return false;
-		curr.skip = skip * curr.sectorSize;
+		curr.skip = (int64_t)skip * curr.sectorSize;
 		curr.start += currPregap;
 		totalPregap = currPregap;
 		tracks.push_back(curr);
@@ -419,18 +425,18 @@ bool CDROM_Interface_Image::AddTrack(Track &curr, int &shift, int prestart, int 
 	if (prev.file == curr.file) {
 		curr.start += shift;
 		prev.length = curr.start + totalPregap - prev.start - skip;
-		curr.skip += prev.skip + prev.length * prev.sectorSize + skip * curr.sectorSize;
+		curr.skip += prev.skip + (int64_t)prev.length * prev.sectorSize + (int64_t)skip * curr.sectorSize;
 		totalPregap += currPregap;
 		curr.start += totalPregap;
 		// current track uses a different file as the previous track
 	} else {
-		int tmp = prev.file->getLength() - prev.skip;
-		prev.length = tmp / prev.sectorSize;
+		int64_t tmp = prev.file->getLength() - prev.skip;
+		prev.length = (int)(tmp / prev.sectorSize);
 		if (tmp % prev.sectorSize != 0)
 			prev.length++; // padding
 
 		curr.start += prev.start + prev.length + currPregap;
-		curr.skip = skip * curr.sectorSize;
+		curr.skip = (int64_t)skip * curr.sectorSize;
 		shift += prev.start + prev.length;
 		totalPregap = currPregap;
 	}

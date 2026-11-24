@@ -2,6 +2,7 @@
 #include "wx-utils.h"
 #include "wx-app.h"
 #include "wx-common.h"
+#include "wx-frontend.h"
 
 #ifdef __WXOSX__
 #include <math.h>
@@ -149,6 +150,7 @@ class DriveStatusPanel : public wxPanel {
         }
 
         void AppendCDROMItems(wxMenu *popup) {
+                wx_refresh_host_cdrom_menu();
                 wxFrame *frame = wxDynamicCast(wxGetTopLevelParent(this), wxFrame);
                 wxMenu *cdrom = (frame && frame->GetMenuBar()) ? wx_getsubmenu(frame->GetMenuBar(), XRCID("IDM_CDROM")) : NULL;
                 if (!cdrom) {
@@ -225,6 +227,13 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
                         this->callback(SDL_DISPLAY_CLOSE, 0, 0);
                 else
                         owner->GetEventHandler()->ProcessEvent(event);
+        });
+        /* Rescan host optical drives whenever the CD-ROM menu opens (USB drives come and go). */
+        Bind(wxEVT_MENU_OPEN, [this](wxMenuEvent &event) {
+                wxMenuBar *menubar = GetMenuBar();
+                if (menubar && event.GetMenu() && event.GetMenu() == wx_getsubmenu(menubar, XRCID("IDM_CDROM")))
+                        wx_refresh_host_cdrom_menu();
+                event.Skip();
         });
         Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent &event) {
                 if (event.CanVeto()) {

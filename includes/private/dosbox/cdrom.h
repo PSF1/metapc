@@ -102,8 +102,8 @@ class CDROM_Interface_Image : public CDROM_Interface {
     private:
         class TrackFile {
             public:
-                virtual bool read(Bit8u *buffer, int seek, int count) = 0;
-                virtual int getLength() = 0;
+                virtual bool read(Bit8u *buffer, int64_t seek, int count) = 0;
+                virtual int64_t getLength() = 0;
                 virtual ~TrackFile(){};
         };
 
@@ -111,8 +111,8 @@ class CDROM_Interface_Image : public CDROM_Interface {
             public:
                 BinaryFile(const char *filename, bool &error);
                 ~BinaryFile();
-                bool read(Bit8u *buffer, int seek, int count);
-                int getLength();
+                bool read(Bit8u *buffer, int64_t seek, int count);
+                int64_t getLength();
 
             private:
                 BinaryFile();
@@ -125,7 +125,7 @@ class CDROM_Interface_Image : public CDROM_Interface {
                 int attr;
                 int start;
                 int length;
-                int skip;
+                int64_t skip; /* byte offset in the file: 64-bit for DVD images */
                 int sectorSize;
                 bool mode2;
                 TrackFile *file;
@@ -138,6 +138,8 @@ class CDROM_Interface_Image : public CDROM_Interface {
         bool SetDevice(char *path, int forceCD);
         bool GetUPC(unsigned char &attr, char *upc);
         bool GetAudioTracks(int &stTrack, int &end, TMSF &leadOut);
+        /* Leadout as a sector count; TMSF can't hold more than 255 minutes (DVD images). */
+        int GetLeadoutSector();
         bool GetAudioTrackInfo(int track, int &number, TMSF &start, unsigned char &attr);
         bool GetAudioSub(int sector, unsigned char &attr, unsigned char &track, unsigned char &index, TMSF &relPos, TMSF &absPos);
         bool GetMediaTrayStatus(bool &mediaPresent, bool &mediaChanged, bool &trayOpen);
