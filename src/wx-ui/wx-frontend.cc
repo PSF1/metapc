@@ -40,6 +40,7 @@ extern "C" {
 #include "ide.h"
 #include "scsi_zip.h"
 #include "sound.h"
+#include "sound_drives.h"
 #include "disc.h"
 #include "disc_img.h"
 #include "nvr.h"
@@ -456,6 +457,8 @@ static void load_disc(wxWindow *hwnd, int drive) {
         if (wx_getfile(hwnd, "Disc image (*.img;*.ima;*.fdi)|*.img;*.ima;*.fdi|All files (*.*)|*.*", discfns[drive], file)) {
                 disc_close(drive);
                 disc_load(drive, (char *)(const char *)file.mb_str());
+                if (!drive_empty[drive])
+                        drivesnd_ui_fdd_insert(drive);
                 saveconfig(NULL);
         }
 }
@@ -463,6 +466,7 @@ static void load_disc(wxWindow *hwnd, int drive) {
 static void eject_cdrom() {
         atapi->exit();
         atapi_close();
+        drivesnd_ui_cd_change();
 }
 
 static bool hotkey_held(wxKeyCode key) {

@@ -5,6 +5,7 @@
 
 #include "ibm.h"
 #include "hdd_file.h"
+#include "sound_drives.h"
 #include "ramdisk/ramdisk.h"
 #include "minivhd/minivhd.h"
 #include "minivhd/minivhd_util.h"
@@ -30,6 +31,8 @@ bool is_ramdisk_file(const char *fn) {
 void hdd_load_ext(hdd_file_t *hdd, const char *fn, int spt, int hpc, int tracks, int read_only) {
         int requested_read_only = read_only;
         bool is_ramdisk = is_ramdisk_file(fn);
+
+        hdd->sound_id = -1;
         if (is_ramdisk)
                 read_only = 1;
 
@@ -151,7 +154,20 @@ void hdd_load_ext(hdd_file_t *hdd, const char *fn, int spt, int hpc, int tracks,
 
 }
 
-void hdd_load(hdd_file_t *hdd, int d, const char *fn) { hdd_load_ext(hdd, fn, hdc[d].spt, hdc[d].hpc, hdc[d].tracks, 0); }
+void hdd_load(hdd_file_t *hdd, int d, const char *fn) {
+        hdd_load_ext(hdd, fn, hdc[d].spt, hdc[d].hpc, hdc[d].tracks, 0);
+        if (hdd->f) {
+                hdd->sound_id = d;
+                drivesnd_hdd_attach(d, hdd->tracks, (uint64_t)hdd->sectors * 512);
+        }
+}
+
+static void hdd_sound_access(hdd_file_t *hdd, int offset) {
+        int per_cyl = hdd->spt * hdd->hpc;
+
+        if (hdd->sound_id >= 0 && per_cyl > 0)
+                drivesnd_hdd_access(hdd->sound_id, offset / per_cyl);
+}
 
 void hdd_close(hdd_file_t *hdd) {
         if (hdd->f) {
@@ -167,6 +183,7 @@ void hdd_close(hdd_file_t *hdd) {
 }
 
 int hdd_read_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) {
+        hdd_sound_access(hdd, offset);
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_read_sectors((MVHDMeta *)hdd->f, offset, nr_sectors, buffer);
         } else if (hdd->img_type == HDD_IMG_RAW ||
@@ -197,6 +214,7 @@ int hdd_read_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) 
 }
 
 int hdd_write_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) {
+        hdd_sound_access(hdd, offset);
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_write_sectors((MVHDMeta *)hdd->f, offset, nr_sectors, buffer);
         } else if (hdd->img_type == HDD_IMG_RAW ||
@@ -230,6 +248,7 @@ int hdd_write_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer)
 }
 
 int hdd_format_sectors(hdd_file_t *hdd, int offset, int nr_sectors) {
+        hdd_sound_access(hdd, offset);
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_format_sectors((MVHDMeta *)hdd->f, offset, nr_sectors);
         } else if (hdd->img_type == HDD_IMG_RAW ||

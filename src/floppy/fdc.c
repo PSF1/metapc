@@ -9,6 +9,7 @@
 #include "fdd.h"
 #include "io.h"
 #include "pic.h"
+#include "sound_drives.h"
 #include "timer.h"
 #include "x86.h"
 
@@ -297,6 +298,7 @@ void fdc_write(uint16_t addr, uint8_t val, void *priv) {
                                 fdc_reset();
                         }
                         disc_set_motor_enable(val & 0x01);
+                        drivesnd_fdd_motor(0 ^ fdd_swap, val & 0x01);
                         fdc.drive = 0;
                 } else {
                         if ((val & 4) && !(fdc.dor & 4)) {
@@ -305,6 +307,8 @@ void fdc_write(uint16_t addr, uint8_t val, void *priv) {
                                 fdc_reset();
                         }
                         disc_set_motor_enable((val & 0xf0) ? 1 : 0);
+                        drivesnd_fdd_motor(0 ^ fdd_swap, val & 0x10);
+                        drivesnd_fdd_motor(1 ^ fdd_swap, val & 0x20);
                         fdc.drive = val & 3;
                 }
                 fdc.dor = val;

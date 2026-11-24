@@ -35,6 +35,7 @@ extern "C" {
 #include "nvr.h"
 #include "scsi_cd.h"
 #include "sound.h"
+#include "sound_drives.h"
 #include "video.h"
 #include "vid_voodoo.h"
 #include "sdl2-emu.h"
@@ -137,6 +138,8 @@ void ConfigDialog::FindControls() {
         chk_gameblaster = Ctrl<wxCheckBox>("IDC_CHECK3");
         chk_gus = Ctrl<wxCheckBox>("IDC_CHECKGUS");
         chk_ssi = Ctrl<wxCheckBox>("IDC_CHECKSSI");
+        chk_drive_sounds = Ctrl<wxCheckBox>("IDC_CHECKDRIVESND");
+        btn_drive_sounds_cfg = Ctrl<wxWindow>("IDC_CONFIGUREDRIVESND");
         cb_hdd = Ctrl<wxComboBox>("IDC_COMBOHDD");
         cb_fda = Ctrl<wxComboBox>("IDC_COMBODRA");
         cb_fdb = Ctrl<wxComboBox>("IDC_COMBODRB");
@@ -596,6 +599,7 @@ void ConfigDialog::InitControls() {
         chk_gameblaster->SetValue(GAMEBLASTER);
         chk_gus->SetValue(GUS);
         chk_ssi->SetValue(SSI2001);
+        chk_drive_sounds->SetValue(drive_sounds_enabled);
         chk_sync->SetValue(enable_sync);
         chk_voodoo->SetValue(voodoo_enabled);
 
@@ -695,6 +699,7 @@ void ConfigDialog::BindEvents() {
                 DeviceConfigDialog::Open(this, video_card_getdevice(SelectedVideoCard(), romset_index));
         });
         btn_voodoo_cfg->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { DeviceConfigDialog::Open(this, &voodoo_device); });
+        btn_drive_sounds_cfg->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { DeviceConfigDialog::Open(this, &drivesnd_device); });
         btn_sound_cfg->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
                 DeviceConfigDialog::Open(this, sound_card_getdevice(list_to_sound[SelectedIndex(cb_sound)]));
         });
@@ -1018,6 +1023,7 @@ void ConfigDialog::Save() {
         int temp_gameblaster = chk_gameblaster->GetValue();
         int temp_gus = chk_gus->GetValue();
         int temp_ssi2001 = chk_ssi->GetValue();
+        int temp_drive_sounds = chk_drive_sounds->GetValue();
         enable_sync = chk_sync->GetValue();
         int temp_voodoo = chk_voodoo->GetValue();
         int temp_sound_card_current = list_to_sound[SelectedIndex(cb_sound)];
@@ -1038,7 +1044,8 @@ void ConfigDialog::Save() {
 #endif
 
         if (temp_model != model || gfx != gfxcard || mem != mem_size || temp_fpu != fpu_type || temp_gameblaster != GAMEBLASTER ||
-            temp_gus != GUS || temp_ssi2001 != SSI2001 || temp_sound_card_current != sound_card_current ||
+            temp_gus != GUS || temp_ssi2001 != SSI2001 || temp_drive_sounds != drive_sounds_enabled ||
+            temp_sound_card_current != sound_card_current ||
             temp_voodoo != voodoo_enabled || temp_dynarec != cpu_use_dynarec || temp_fda_type != fdd_get_type(0) ||
             temp_fdb_type != fdd_get_type(1) || temp_mouse_type != mouse_type || hdd_changed || hd_changed ||
             cdrom_channel != new_cdrom_channel || zip_channel != new_zip_channel || lpt1_current != temp_lpt1_device
@@ -1060,6 +1067,7 @@ void ConfigDialog::Save() {
                 GAMEBLASTER = temp_gameblaster;
                 GUS = temp_gus;
                 SSI2001 = temp_ssi2001;
+                drive_sounds_enabled = temp_drive_sounds;
                 sound_card_current = temp_sound_card_current;
                 lpt1_current = temp_lpt1_device;
                 voodoo_enabled = temp_voodoo;

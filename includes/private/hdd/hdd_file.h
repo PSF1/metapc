@@ -14,6 +14,7 @@ typedef struct hdd_file_t {
         int sectors;
         int read_only;
         hdd_img_type img_type;
+        int sound_id; /*hdc[] index for drive sounds, -1 = silent*/
 } hdd_file_t;
 
 void hdd_load(hdd_file_t *hdd, int d, const char *fn);

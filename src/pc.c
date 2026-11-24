@@ -63,6 +63,7 @@
 #include "paths.h"
 #include "plugin.h"
 #include "viewer.h"
+#include "sound_drives.h"
 
 #ifdef USE_NETWORKING
 #include "nethandler.h"
@@ -392,6 +393,8 @@ void resetpchard() {
                 device_add(&ssi2001_device);
         if (voodoo_enabled)
                 device_add(&voodoo_device);
+        if (drive_sounds_enabled)
+                device_add(&drivesnd_device);
         hdd_controller_init(hdd_controller_name);
         pc_reset();
 
@@ -639,6 +642,7 @@ void loadconfig(char *fn) {
         GUS = config_get_int(CFG_MACHINE, NULL, "gus", 0);
         SSI2001 = config_get_int(CFG_MACHINE, NULL, "ssi2001", 0);
         voodoo_enabled = config_get_int(CFG_MACHINE, NULL, "voodoo", 0);
+        drive_sounds_enabled = config_get_int(CFG_MACHINE, NULL, "drive_sounds", 0);
 
         p = (char *)config_get_string(CFG_MACHINE, NULL, "model", "");
         if (p)
@@ -888,6 +892,7 @@ void saveconfig(char *fn) {
         config_set_int(CFG_MACHINE, NULL, "gus", GUS);
         config_set_int(CFG_MACHINE, NULL, "ssi2001", SSI2001);
         config_set_int(CFG_MACHINE, NULL, "voodoo", voodoo_enabled);
+        config_set_int(CFG_MACHINE, NULL, "drive_sounds", drive_sounds_enabled);
 
         config_set_string(CFG_MACHINE, NULL, "model", model_get_internal_name());
         config_set_int(CFG_MACHINE, NULL, "cpu_manufacturer", cpu_manufacturer);

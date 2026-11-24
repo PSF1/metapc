@@ -2,6 +2,7 @@
 #include "disc.h"
 #include "fdc.h"
 #include "fdd.h"
+#include "sound_drives.h"
 
 char discfns[2][256];
 
@@ -84,6 +85,7 @@ uint64_t fdd_seek(int drive, int track_diff) {
 
         fdc_discchange_clear(drive);
 
+        drivesnd_fdd_seek(drive, fdd[drive].track);
         disc_seek(drive, fdd[drive].track);
         return 1000 * TIMER_USEC;
 }

@@ -62,7 +62,8 @@ class ConfigDialog : public wxDialog {
         wxComboBox *cb_video, *cb_video_speed;
         wxCheckBox *chk_voodoo;
         wxComboBox *cb_sound;
-        wxCheckBox *chk_gameblaster, *chk_gus, *chk_ssi;
+        wxCheckBox *chk_gameblaster, *chk_gus, *chk_ssi, *chk_drive_sounds;
+        wxWindow *btn_drive_sounds_cfg;
         wxComboBox *cb_hdd, *cb_fda, *cb_fdb, *cb_cd_model, *cb_cd_speed;
         wxChoicebook *hd_book;
         wxComboBox *cb_lpt1, *cb_mouse, *cb_joystick;

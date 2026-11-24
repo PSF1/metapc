@@ -7,6 +7,7 @@
 #include "ide_atapi.h"
 #include "scsi.h"
 #include "scsi_cd.h"
+#include "sound_drives.h"
 #include "timer.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -830,6 +831,7 @@ static void *scsi_cd_init(scsi_bus_t *bus, int id) {
         cd_data = data;
         cd_set_speed(cd_speed);
         cd_set_model(cd_model);
+        drivesnd_cd_attach(data->max_speed, cd_models[data->cur_model].is_dvd);
 
         return data;
 }
@@ -1109,6 +1111,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
 
                         data->cdpos = 0;
 
+                        drivesnd_cd_read(data->cdpos);
                         seek_time = get_seek_time(data, old_pos, data->cdpos);
                         if (seek_time) {
                                 data->cmd_pos = CMD_POS_WAIT;
@@ -1167,6 +1170,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
 
                         data->cdpos = (((uint32_t)cdb[1] & 0x1f) << 16) | ((uint32_t)cdb[2] << 8) | (uint32_t)cdb[3];
 
+                        drivesnd_cd_read(data->cdpos);
                         seek_time = get_seek_time(data, old_pos, data->cdpos);
                         if (seek_time) {
                                 data->cmd_pos = CMD_POS_WAIT;
@@ -1264,6 +1268,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                                         atapi_set_transfer_granularity(data->atapi_dev, 2352);
                         }
 
+                        drivesnd_cd_read(data->cdpos);
                         seek_time = get_seek_time(data, old_pos, data->cdpos);
                         if (seek_time) {
                                 data->cmd_pos = CMD_POS_WAIT;
@@ -1352,6 +1357,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                         if (data->is_atapi)
                                 atapi_set_transfer_granularity(data->atapi_dev, 2048);
 
+                        drivesnd_cd_read(data->cdpos);
                         seek_time = get_seek_time(data, old_pos, data->cdpos);
 
                         if (seek_time) {
@@ -1581,6 +1587,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                 }
 
                 atapi->playaudio(pos, len, (cdb[0] == GPCMD_PLAY_AUDIO_MSF) ? 1 : 0);
+                drivesnd_cd_audio(1);
                 data->cmd_pos = CMD_POS_IDLE;
                 return SCSI_PHASE_STATUS;
 
@@ -1606,12 +1613,16 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                 return alloc_length ? SCSI_PHASE_DATA_IN : SCSI_PHASE_STATUS;
 
         case GPCMD_START_STOP_UNIT:
-                if (!cdb[4])
+                if (!cdb[4]) {
                         atapi->stop();
-                else if (cdb[4] == 2)
+                        drivesnd_cd_audio(0);
+                } else if (cdb[4] == 2) {
                         atapi->eject();
-                else if (cdb[4] == 3)
+                        drivesnd_cd_tray(1);
+                } else if (cdb[4] == 3) {
                         atapi->load();
+                        drivesnd_cd_tray(0);
+                }
                 data->cmd_pos = CMD_POS_IDLE;
                 return SCSI_PHASE_STATUS;
 
@@ -1709,6 +1720,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
                         atapi->resume();
                 else
                         atapi->pause();
+                drivesnd_cd_audio(cdb[8] & 1);
                 data->cmd_pos = CMD_POS_IDLE;
                 return SCSI_PHASE_STATUS;
 
@@ -1721,6 +1733,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
 
                         atapi->seek(data->cdpos);
 
+                        drivesnd_cd_read(data->cdpos);
                         seek_time = get_seek_time(data, old_pos, data->cdpos);
                         if (seek_time) {
                                 data->cmd_pos = CMD_POS_WAIT;
@@ -1751,6 +1764,7 @@ static int scsi_cd_command(uint8_t *cdb, void *p) {
 
         case GPCMD_STOP_PLAY_SCAN:
                 atapi->stop();
+                drivesnd_cd_audio(0);
                 data->cmd_pos = CMD_POS_IDLE;
                 return SCSI_PHASE_STATUS;
 
