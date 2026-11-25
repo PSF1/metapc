@@ -367,6 +367,11 @@ void resetpc_cad() {
 
 void resetpchard() {
         timer_reset();
+        /* Empty the memory mapping list before closing the devices: most devices free their
+           mappings without removing them, so a device that does remove its own (the Xebec and
+           DTC hard disk controllers) would walk freed memory and could loop forever. The list is
+           rebuilt from scratch below (mem_alloc() and the device inits). */
+        mem_mapping_clear();
         device_close_all();
         mouse_emu_close();
         lpt1_device_close();

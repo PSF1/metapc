@@ -1162,13 +1162,17 @@ void mem_mapping_remove(mem_mapping_t *mapping)
     assert(mapping);
     assert(mapping != &base_mapping);
 
+    /* The mapping may no longer be in the list: mem_mapping_clear() and mem_alloc() empty it
+       without telling the devices that own the mappings. */
     prev = &base_mapping;
     dest = prev->next;
-    while(dest != mapping)
+    while(dest && dest != mapping)
     {
         prev = dest;
         dest = dest->next;
     }
+    if (!dest)
+        return;
     prev->next = mapping->next;
 
     mem_mapping_recalc(mapping->base, mapping->size);
