@@ -6,13 +6,24 @@
 #include "wx-common.h"
 #include "wx-frontend.h"
 #include "wx-status.h"
+#include "wx-config.h"
+#include "wx-manager.h"
+#include "wx-machineinfo.h"
 #include "logging-internal.h"
+
+#include <wx/snglinst.h>
 
 extern "C" {
 #include "sdl2-emu.h"
+#include "ibm.h"
+#include "config.h"
 }
 
 extern int config_override;
+
+/* Held for the life of a machine process, so the manager (and other PCem processes) can tell
+   this machine is running. */
+static wxSingleInstanceChecker *machine_lock = NULL;
 
 extern void InitXmlResource();
 
@@ -27,28 +38,19 @@ wxBEGIN_EVENT_TABLE(Frame, wxFrame) wxEND_EVENT_TABLE()
 
         wxIMPLEMENT_APP_NO_MAIN(App);
 
-static void bind_quit_handlers(wxApp *app) {
-#ifdef __WXOSX__
-        app->Bind(wxEVT_CHAR_HOOK, [](wxKeyEvent &event) {
-                wxDialog *dlg = wxDynamicCast(wxGetTopLevelParent((wxWindow *)event.GetEventObject()), wxDialog);
-                if (event.GetKeyCode() == 'Q' && event.GetModifiers() == wxMOD_CMD && dlg &&
-                    dlg->GetName() == "ConfigureSelectionDlg" && dlg->IsModal())
-                        dlg->EndModal(0);
-                else
-                        event.Skip();
-        });
-#endif
-}
-
 App::App() { this->frame = NULL; }
+
+int App::OnExit() {
+        delete machine_lock;
+        machine_lock = NULL;
+        return wxApp::OnExit();
+}
 
 bool App::OnInit() {
         SetAppDisplayName("PCem");
         wxImage::AddHandler(new wxPNGHandler);
         wxXmlResource::Get()->InitAllHandlers();
         InitXmlResource();
-
-        bind_quit_handlers(this);
 
         frame = new Frame(this, "null frame", wxPoint(500, 500), wxSize(100, 100));
         frame->Start();
@@ -89,19 +91,43 @@ void wx_set_app_icon(wxTopLevelWindow *win) {
 #endif
 }
 
-void Frame::Start() {
-        if (wx_start(this))
-                ShowConfigSelection();
-        else
-                Quit(0);
+/* Takes the running-machine lock for config_file_default. The manager probes the lock every
+   second, which briefly holds it, so retry before deciding another process has the machine. */
+static bool lock_machine() {
+        wxString name = wx_machine_instance_name(wxString(config_file_default));
+        for (int tries = 0; tries < 10; tries++) {
+                machine_lock = new wxSingleInstanceChecker();
+                if (!machine_lock->Create(name) || !machine_lock->IsAnotherRunning())
+                        return true;
+                delete machine_lock;
+                machine_lock = NULL;
+                wxMilliSleep(50);
+        }
+        return false;
 }
 
-void Frame::ShowConfigSelection() {
-        if (wx_load_config(this))
-                start_emulation(this);
-        else
+void Frame::Start() {
+        if (!wx_start(this)) {
+                Quit(0);
+                return;
+        }
+        if (!config_override) {
+                /* No machine given: this process is the machine manager. Each machine it
+                   starts runs in its own process (pcem --config <file>). */
+                (new ManagerFrame(this))->Show();
+                return;
+        }
+        if (!lock_machine()) {
+                wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "PCem",
+                              wxOK | wxICON_INFORMATION);
                 Quit(1);
+                return;
+        }
+        has_been_inited = 1;
+        start_emulation(this);
 }
+
+void Frame::ManagerClosed() { Quit(1); }
 
 void Frame::OnCallbackEvent(CallbackEvent &event) {
         WX_CALLBACK callback = event.GetCallback();
@@ -126,10 +152,7 @@ void Frame::OnStopEmulationEvent(wxCommandEvent &event) {
 
                 if (ret == wxID_OK) {
                         stop_emulation();
-                        if (!config_override)
-                                ShowConfigSelection();
-                        else
-                                Quit(1);
+                        Quit(1);
                 } else
                         resume_emulation();
         }
@@ -138,10 +161,7 @@ void Frame::OnStopEmulationEvent(wxCommandEvent &event) {
 void Frame::OnStopEmulationNowEvent(wxCommandEvent &event) {
         stop_emulation();
         pclog_flush();
-        if (!config_override)
-                ShowConfigSelection();
-        else
-                Quit(1);
+        Quit(1);
 }
 
 void Frame::OnShowWindowEvent(wxCommandEvent &event) {

@@ -4,6 +4,19 @@
 #include "wx-common.h"
 #include "wx-frontend.h"
 
+#include <wx/dcbuffer.h>
+#include <wx/display.h>
+#include <wx/graphics.h>
+
+#include <algorithm>
+#include <climits>
+#include <string>
+
+extern "C" {
+#include "ibm.h"
+#include "config.h"
+}
+
 #ifdef __WXOSX__
 #include <math.h>
 #include <objc/message.h>
@@ -46,10 +59,7 @@ class DriveStatusPanel : public wxPanel {
 
         int GetRequiredWidth() { return count * (IconSize().x + DISPLAY_DRIVE_ICON_SPACING) + DISPLAY_DRIVE_ICON_SPACING; }
 
-        bool UpdateDrives() {
-                char text[4096];
-                int num = 0;
-                drive_info_t *info = get_machine_info(text, &num);
+        bool UpdateDrives(const drive_info_t *info, int num) {
                 bool count_changed = num != count;
                 bool changed = count_changed;
 
@@ -199,11 +209,220 @@ class DriveStatusPanel : public wxPanel {
         }
 };
 
+/* ---------------------------------------------------------------- monitor */
+
+/* Bezel geometry, in DIPs: the desk margin around the monitor, and the bezel around the screen. */
+#define MONITOR_OUTER 10
+#define MONITOR_SIDE 18
+#define MONITOR_TOP 18
+#define MONITOR_BOTTOM 34
+
+/* The centre pane: draws a monitor around the canvas SDL renders into. With a fixed-size
+   display (the default "Original" resolution) the screen keeps its size and the monitor sits
+   centred on the desk; with a resizable display the screen fills the pane. */
+class MonitorPanel : public wxPanel {
+    public:
+        MonitorPanel(wxWindow *parent)
+                : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE), bezel(true), fullscreen(false),
+                  top_inset(0), screen_size(wxDefaultSize), power(EMULATION_STOPPED) {
+                SetBackgroundStyle(wxBG_STYLE_PAINT);
+                canvas = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(640, 480), wxWANTS_CHARS);
+                Bind(wxEVT_PAINT, &MonitorPanel::OnPaint, this);
+                Bind(wxEVT_SIZE, [this](wxSizeEvent &event) {
+                        PlaceCanvas();
+                        Refresh();
+                });
+        }
+
+        wxPanel *Canvas() { return canvas; }
+        bool HasBezel() const { return bezel; }
+
+        void SetBezel(bool on) {
+                bezel = on;
+                PlaceCanvas();
+                Refresh();
+        }
+
+        void SetFullscreen(bool on, int inset) {
+                fullscreen = on;
+                top_inset = inset;
+                PlaceCanvas();
+                Refresh();
+        }
+
+        void SetScreenSize(const wxSize &size) {
+                screen_size = size;
+                PlaceCanvas();
+                Refresh();
+        }
+
+        /* Space the monitor needs around the screen. */
+        wxSize ChromeSize() const {
+                if (!ShowsBezel())
+                        return wxSize(0, 0);
+                return wxSize(2 * FromDIP(MONITOR_OUTER + MONITOR_SIDE),
+                              2 * FromDIP(MONITOR_OUTER) + FromDIP(MONITOR_TOP) + FromDIP(MONITOR_BOTTOM));
+        }
+
+        void SetPowerState(int state) {
+                if (state != power) {
+                        power = state;
+                        if (ShowsBezel())
+                                Refresh();
+                }
+        }
+
+    private:
+        wxPanel *canvas;
+        bool bezel;
+        bool fullscreen;
+        int top_inset;
+        wxSize screen_size;
+        int power;
+
+        bool ShowsBezel() const { return bezel && !fullscreen; }
+
+        wxRect ScreenRect() const {
+                wxSize client = GetClientSize();
+                if (fullscreen)
+                        return wxRect(0, top_inset, client.x, std::max(0, client.y - top_inset));
+                wxSize chrome = ChromeSize();
+                wxSize avail(std::max(1, client.x - chrome.x), std::max(1, client.y - chrome.y));
+                wxSize screen = avail;
+                if (screen_size.x > 0 && screen_size.y > 0) {
+                        screen.x = std::min(screen_size.x, avail.x);
+                        screen.y = std::min(screen_size.y, avail.y);
+                }
+                int x = (client.x - (screen.x + chrome.x)) / 2;
+                int y = (client.y - (screen.y + chrome.y)) / 2;
+                if (ShowsBezel()) {
+                        x += FromDIP(MONITOR_OUTER + MONITOR_SIDE);
+                        y += FromDIP(MONITOR_OUTER + MONITOR_TOP);
+                }
+                return wxRect(std::max(0, x), std::max(0, y), screen.x, screen.y);
+        }
+
+        void PlaceCanvas() {
+                wxRect r = ScreenRect();
+                if (canvas->GetRect() != r)
+                        canvas->SetSize(r);
+        }
+
+        void OnPaint(wxPaintEvent &event) {
+                wxAutoBufferedPaintDC dc(this);
+                if (!ShowsBezel()) {
+                        dc.SetBackground(*wxBLACK_BRUSH);
+                        dc.Clear();
+                        return;
+                }
+                wxColour desk = wxSystemSettings::GetColour(wxSYS_COLOUR_APPWORKSPACE);
+                dc.SetBackground(wxBrush(desk));
+                dc.Clear();
+
+                wxRect screen = ScreenRect();
+                wxRect body(screen.x - FromDIP(MONITOR_SIDE), screen.y - FromDIP(MONITOR_TOP),
+                            screen.width + 2 * FromDIP(MONITOR_SIDE), screen.height + FromDIP(MONITOR_TOP) + FromDIP(MONITOR_BOTTOM));
+                double radius = FromDIP(10);
+
+                wxGraphicsContext *gc = wxGraphicsContext::Create(dc);
+                if (!gc)
+                        return;
+                /* drop shadow */
+                gc->SetPen(*wxTRANSPARENT_PEN);
+                gc->SetBrush(wxBrush(desk.ChangeLightness(80)));
+                gc->DrawRoundedRectangle(body.x + FromDIP(2), body.y + FromDIP(3), body.width, body.height, radius);
+                /* bezel */
+                gc->SetBrush(gc->CreateLinearGradientBrush(0, body.y, 0, body.GetBottom(), wxColour(66, 66, 70), wxColour(36, 36, 39)));
+                gc->SetPen(wxPen(wxColour(22, 22, 24)));
+                gc->DrawRoundedRectangle(body.x, body.y, body.width - 1, body.height - 1, radius);
+                gc->SetPen(wxPen(wxColour(90, 90, 96)));
+                gc->SetBrush(*wxTRANSPARENT_BRUSH);
+                gc->DrawRoundedRectangle(body.x + 1, body.y + 1, body.width - 3, body.height - 3, radius - 1);
+                /* recessed screen surround */
+                wxRect surround = screen;
+                surround.Inflate(FromDIP(4));
+                gc->SetPen(wxPen(wxColour(80, 80, 84)));
+                gc->SetBrush(*wxBLACK_BRUSH);
+                gc->DrawRoundedRectangle(surround.x, surround.y, surround.width, surround.height, FromDIP(3));
+
+                /* badge and power LED on the chin */
+                int chin_y = screen.GetBottom() + FromDIP(4) + (FromDIP(MONITOR_BOTTOM) - FromDIP(4)) / 2;
+                wxFont font = GetFont().Bold();
+                gc->SetFont(font, wxColour(150, 150, 156));
+                double tw, th;
+                gc->GetTextExtent("PCem", &tw, &th);
+                gc->DrawText("PCem", body.x + (body.width - tw) / 2, chin_y - th / 2);
+
+                wxColour led = power == EMULATION_RUNNING ? wxColour(60, 230, 60)
+                                                          : (power == EMULATION_PAUSED ? wxColour(240, 170, 20) : wxColour(70, 70, 70));
+                double lr = FromDIP(3);
+                double lx = body.GetRight() - FromDIP(MONITOR_SIDE) - lr;
+                gc->SetPen(wxPen(led.ChangeLightness(60)));
+                gc->SetBrush(wxBrush(led));
+                gc->DrawEllipse(lx - lr, chin_y - lr, 2 * lr, 2 * lr);
+                delete gc;
+        }
+};
+
+/* ---------------------------------------------------------------- machine window */
+
+static const char *WINDOW_SECTION = "Machine window";
+/* Config lines are limited to 255 characters, so the layout is stored in pieces, each
+   prefixed with a quote so the parser keeps leading '=' and spaces. */
+#define LAYOUT_CHUNK 180
+
+enum {
+        ID_PANEL_FIRST = wxID_HIGHEST + 6000,
+        ID_PANEL_LAST = ID_PANEL_FIRST + 63,
+        ID_MONITOR_FRAME,
+        ID_RESET_LAYOUT,
+};
+
+static wxString read_layout() {
+        int parts = wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "layout_parts", 0);
+        std::string s;
+        for (int i = 0; i < parts; i++) {
+                const char *p = wx_config_get_string(CFG_MACHINE, WINDOW_SECTION, wxString::Format("layout%d", i).mb_str(), "");
+                if (!p || p[0] != '"')
+                        return wxEmptyString;
+                s += p + 1;
+        }
+        return wxString::FromUTF8(s.c_str());
+}
+
+static void write_layout(const wxString &layout) {
+        std::string s(layout.utf8_str().data());
+        int parts = 0;
+        for (size_t pos = 0; pos < s.size(); pos += LAYOUT_CHUNK, parts++) {
+                std::string chunk = "\"" + s.substr(pos, LAYOUT_CHUNK);
+                wx_config_set_string(CFG_MACHINE, WINDOW_SECTION, wxString::Format("layout%d", parts).mb_str(), chunk.c_str());
+        }
+        wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "layout_parts", parts);
+}
+
+DisplayFrame *DisplayFrame::current = NULL;
+
 DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *title, SDL_DISPLAY_CALLBACK callback)
-        : wxFrame(owner, wxID_ANY, title, wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE), callback(callback) {
+        : wxFrame(owner, wxID_ANY, title, wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE), callback(callback),
+          owner(owner), panels_menu(NULL), panel_timer(this), panel_ticks(0), in_fullscreen(false), last_speed(0), last_fps(0),
+          last_size(640, 480), last_resizable(true) {
+        static bool registered = false;
+        if (!registered) {
+                add_config_callback(NULL, SaveWindowConfig, NULL);
+                registered = true;
+        }
+        current = this;
+
         wx_set_app_icon(this);
-        if (menubar)
+        if (menubar) {
                 SetMenuBar(menubar);
+                panels_menu = new wxMenu();
+                int view = menubar->FindMenu("View");
+                if (view != wxNOT_FOUND)
+                        menubar->Insert(view, panels_menu, "&Panels");
+                else
+                        menubar->Append(panels_menu, "&Panels");
+        }
 
         wxStatusBar *status = CreateStatusBar(4);
         int widths[4] = {-1, DISPLAY_DRIVE_ICON_SPACING, 90, 90};
@@ -214,25 +433,39 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
                 event.Skip();
         });
 
-        canvas = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+        aui.SetManagedWindow(this);
+        aui.SetFlags(wxAUI_MGR_DEFAULT | wxAUI_MGR_LIVE_RESIZE);
+
+        monitor = new MonitorPanel(this);
+        monitor->SetBezel(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", 1) != 0);
+        canvas = monitor->Canvas();
         canvas->SetBackgroundStyle(wxBG_STYLE_PAINT);
         canvas->SetBackgroundColour(*wxBLACK);
-        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-        sizer->Add(canvas, 1, wxEXPAND);
-        SetSizer(sizer);
-        SetClientSize(640, 480);
+        aui.AddPane(monitor, wxAuiPaneInfo().Name("monitor").CenterPane().PaneBorder(false));
+        /* Start big enough that the panes get their natural sizes; SetDisplaySize then fits. */
+        SetClientSize(FromDIP(wxSize(1100, 800)));
 
-        Bind(wxEVT_MENU, [this, owner](wxCommandEvent &event) {
+        CreatePanels(read_layout());
+        SetDisplaySize(640, 480, true);
+
+        Bind(wxEVT_MENU, [this](wxCommandEvent &event) {
                 if (event.GetId() == wxID_EXIT)
                         this->callback(SDL_DISPLAY_CLOSE, 0, 0);
-                else
-                        owner->GetEventHandler()->ProcessEvent(event);
+                else if (!HandlePanelsMenu(event.GetId()))
+                        this->owner->GetEventHandler()->ProcessEvent(event);
         });
         /* Rescan host optical drives whenever the CD-ROM menu opens (USB drives come and go). */
         Bind(wxEVT_MENU_OPEN, [this](wxMenuEvent &event) {
                 wxMenuBar *menubar = GetMenuBar();
                 if (menubar && event.GetMenu() && event.GetMenu() == wx_getsubmenu(menubar, XRCID("IDM_CDROM")))
                         wx_refresh_host_cdrom_menu();
+                if (event.GetMenu() && event.GetMenu() == panels_menu)
+                        UpdatePanelsMenu();
+                event.Skip();
+        });
+        Bind(wxEVT_AUI_PANE_CLOSE, [this](wxAuiManagerEvent &event) {
+                /* Keep the screen its size: give the closed pane's space back. */
+                CallAfter([this]() { SetDisplaySize(last_size.x, last_size.y, last_resizable); });
                 event.Skip();
         });
         Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent &event) {
@@ -280,7 +513,193 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
         canvas->Bind(wxEVT_KEY_UP, [](wxKeyEvent &event) {});
 #endif
         canvas->Bind(wxEVT_CHAR, [](wxKeyEvent &event) {});
+
+        Bind(wxEVT_TIMER, [this](wxTimerEvent &) { UpdatePanels(); });
+        panel_timer.Start(100);
 }
+
+DisplayFrame::~DisplayFrame() {
+        panel_timer.Stop();
+        if (current == this)
+                current = NULL;
+        aui.UnInit();
+}
+
+/* ---------------------------------------------------------------- panels */
+
+void DisplayFrame::AddPanelPane(MachinePanel *panel, int *right_pos, int *bottom_pos) {
+        wxSize best = panel->GetBestSize();
+        wxAuiPaneInfo info;
+        info.Name(panel->PaneName())
+                .Caption(panel->Caption())
+                .CloseButton(true)
+                .MaximizeButton(false)
+                .PinButton(false)
+                .Floatable(true)
+                .Dockable(true)
+                .DestroyOnClose(false)
+                .FloatingSize(best + FromDIP(wxSize(16, 40)));
+        if (panel->DefaultRight())
+                info.Right().Layer(1).Row(0).Position((*right_pos)++).BestSize(std::max(best.x, FromDIP(240)), best.y);
+        else
+                info.Bottom().Layer(0).Row(0).Position((*bottom_pos)++).BestSize(std::max(best.x, FromDIP(200)), best.y);
+        info.MinSize(panel->GetMinSize().x > 0 ? panel->GetMinSize().x : FromDIP(150), best.y);
+        aui.AddPane(panel, info);
+}
+
+/* (Re)creates the panes the current configuration has, then applies a saved layout. */
+void DisplayFrame::CreatePanels(const wxString &layout) {
+        for (MachinePanel *panel : panels) {
+                aui.DetachPane(panel);
+                panel->Destroy();
+        }
+        panels = wx_create_panels(this, this);
+        panels_signature = wx_panels_signature();
+
+        int right_pos = 0, bottom_pos = 0;
+        for (MachinePanel *panel : panels)
+                AddPanelPane(panel, &right_pos, &bottom_pos);
+        aui.Update();
+        default_layout = aui.SavePerspective();
+
+        if (!layout.empty())
+                ApplyLayout(layout);
+        BuildPanelsMenu();
+}
+
+void DisplayFrame::ApplyLayout(const wxString &layout) {
+        aui.LoadPerspective(layout, false);
+        for (MachinePanel *panel : panels) {
+                wxAuiPaneInfo &info = aui.GetPane(panel);
+                /* Captions and minimum sizes come from the code, not from an old layout. */
+                info.Caption(panel->Caption());
+                wxSize best = panel->GetBestSize();
+                info.MinSize(panel->GetMinSize().x > 0 ? panel->GetMinSize().x : FromDIP(150), best.y);
+                /* Panes the saved layout doesn't know (e.g. a drive added since) keep their default place. */
+                if (!layout.Contains("name=" + panel->PaneName() + ";"))
+                        info.Show();
+        }
+        aui.Update();
+}
+
+void DisplayFrame::ResetLayout() {
+        ApplyLayout(default_layout);
+        if (!IsMaximized())
+                SetDisplaySize(last_size.x, last_size.y, last_resizable);
+}
+
+wxString DisplayFrame::CurrentLayout() { return in_fullscreen ? fullscreen_layout : aui.SavePerspective(); }
+
+void DisplayFrame::BuildPanelsMenu() {
+        if (!panels_menu)
+                return;
+        while (panels_menu->GetMenuItemCount())
+                panels_menu->Destroy(panels_menu->FindItemByPosition(0));
+        for (size_t i = 0; i < panels.size() && ID_PANEL_FIRST + (int)i <= ID_PANEL_LAST; i++)
+                panels_menu->AppendCheckItem(ID_PANEL_FIRST + i, panels[i]->Caption());
+        panels_menu->AppendSeparator();
+        panels_menu->AppendCheckItem(ID_MONITOR_FRAME, "&Monitor frame");
+        panels_menu->Append(ID_RESET_LAYOUT, "&Reset layout");
+        UpdatePanelsMenu();
+}
+
+void DisplayFrame::UpdatePanelsMenu() {
+        if (!panels_menu)
+                return;
+        for (size_t i = 0; i < panels.size(); i++) {
+                wxMenuItem *item = panels_menu->FindItem(ID_PANEL_FIRST + i);
+                if (item)
+                        item->Check(aui.GetPane(panels[i]).IsShown());
+        }
+        panels_menu->Check(ID_MONITOR_FRAME, monitor->HasBezel());
+}
+
+bool DisplayFrame::HandlePanelsMenu(int id) {
+        if (id >= ID_PANEL_FIRST && id < ID_PANEL_FIRST + (int)panels.size()) {
+                if (in_fullscreen)
+                        return true;
+                wxAuiPaneInfo &info = aui.GetPane(panels[id - ID_PANEL_FIRST]);
+                info.Show(!info.IsShown());
+                aui.Update();
+                SetDisplaySize(last_size.x, last_size.y, last_resizable);
+                return true;
+        }
+        if (id == ID_MONITOR_FRAME) {
+                monitor->SetBezel(!monitor->HasBezel());
+                SetDisplaySize(last_size.x, last_size.y, last_resizable);
+                return true;
+        }
+        if (id == ID_RESET_LAYOUT) {
+                if (!in_fullscreen)
+                        ResetLayout();
+                return true;
+        }
+        return false;
+}
+
+void DisplayFrame::UpdatePanels() {
+        if (!IsShown())
+                return;
+
+        MachineStatus status;
+        char text[4096];
+        int num = 0;
+        drive_info_t *info = get_machine_info(text, &num);
+        status.num_drives = std::min(num, PANEL_MAX_DRIVES);
+        memcpy(status.drives, info, status.num_drives * sizeof(drive_info_t));
+        status.state = emulation_state;
+        status.speed = last_speed;
+        status.fps = last_fps;
+
+        for (MachinePanel *panel : panels)
+                if (aui.GetPane(panel).IsShown())
+                        panel->UpdateStatus(status);
+        monitor->SetPowerState(status.state);
+        if (drives->UpdateDrives(status.drives, status.num_drives))
+                LayoutStatus();
+
+        /* The configuration can change while running (Settings from the Machine window). */
+        if (++panel_ticks % 10 == 0 && wx_panels_signature() != panels_signature && !in_fullscreen)
+                CreatePanels(CurrentLayout());
+}
+
+void DisplayFrame::RunCommand(int id) {
+        wxCommandEvent event(wxEVT_MENU, id);
+        event.SetEventObject(this);
+        owner->GetEventHandler()->ProcessEvent(event);
+}
+
+void DisplayFrame::FocusDisplay() {
+        CallAfter([this]() {
+                if (IsActive())
+                        canvas->SetFocus();
+        });
+}
+
+/* Config save callback: the window's place and layout, per machine. */
+void DisplayFrame::SaveWindowConfig() {
+        DisplayFrame *f = current;
+        if (!f)
+                return;
+        int x = wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "x", INT_MIN);
+        int y = wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "y", INT_MIN);
+        bool maximized = f->IsMaximized();
+        if (!f->in_fullscreen && !f->IsIconized() && !maximized && f->IsShown()) {
+                wxPoint pos = f->GetPosition();
+                x = pos.x;
+                y = pos.y;
+        }
+        config_free_section(CFG_MACHINE, (char *)WINDOW_SECTION);
+        if (x != INT_MIN && y != INT_MIN) {
+                wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "x", x);
+                wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "y", y);
+        }
+        wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "maximized", maximized);
+        wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", f->monitor->HasBezel());
+        write_layout(f->CurrentLayout());
+}
+
+/* ---------------------------------------------------------------- display host */
 
 void DisplayFrame::LayoutStatus() {
         wxStatusBar *status = GetStatusBar();
@@ -304,17 +723,27 @@ void *DisplayFrame::NativeCanvas() {
 #endif
 }
 
+/* Sizes the window so the screen (the canvas) is width x height. A fixed-size display keeps
+   that size whatever the window does; a resizable one follows the window. */
 void DisplayFrame::SetDisplaySize(int width, int height, bool resizable) {
-        if (IsFullScreen())
+        if (width <= 0 || height <= 0)
                 return;
-        SetMinSize(wxDefaultSize);
-        SetMaxSize(wxDefaultSize);
-        SetClientSize(width, height);
-        Layout();
-        if (!resizable) {
-                wxSize size = GetSize();
-                SetMinSize(size);
-                SetMaxSize(size);
+        last_size = wxSize(width, height);
+        last_resizable = resizable;
+        if (in_fullscreen || IsFullScreen())
+                return;
+        monitor->SetScreenSize(resizable ? wxDefaultSize : wxSize(width, height));
+        if (IsMaximized())
+                return;
+        /* The docked panes may have been squeezed before, so the window may need a couple of
+           passes to settle. */
+        wxSize need = wxSize(width, height) + monitor->ChromeSize();
+        for (int pass = 0; pass < 3; pass++) {
+                wxSize have = monitor->GetSize();
+                if (need == have)
+                        break;
+                SetClientSize(GetClientSize() + (need - have));
+                aui.Update();
         }
 }
 
@@ -353,9 +782,16 @@ int DisplayFrame::TopSafeInset() {
 }
 
 void DisplayFrame::SetDisplayFullscreen(bool fullscreen) {
+        if (fullscreen && !in_fullscreen) {
+                /* Fullscreen shows only the screen: hide the panels and the monitor frame. */
+                fullscreen_layout = aui.SavePerspective();
+                for (MachinePanel *panel : panels)
+                        aui.GetPane(panel).Hide();
+                in_fullscreen = true;
+                monitor->SetFullscreen(true, 0);
+                aui.Update();
+        }
         if (fullscreen) {
-                SetMinSize(wxDefaultSize);
-                SetMaxSize(wxDefaultSize);
 #ifdef __WXGTK__
                 GdkWindow *gdk_window = gtk_widget_get_window((GtkWidget *)GetHandle());
                 if (gdk_window) {
@@ -370,14 +806,15 @@ void DisplayFrame::SetDisplayFullscreen(bool fullscreen) {
         wxStatusBar *status = GetStatusBar();
         if (status && status->IsShown() != !fullscreen)
                 status->Show(!fullscreen);
-#ifdef __WXOSX__
-        wxSizerItem *item = GetSizer() ? GetSizer()->GetItem(canvas) : NULL;
-        if (item) {
-                item->SetFlag(wxEXPAND | wxTOP);
-                item->SetBorder(fullscreen ? TopSafeInset() : 0);
+
+        if (!fullscreen && in_fullscreen) {
+                in_fullscreen = false;
+                monitor->SetFullscreen(false, 0);
+                ApplyLayout(fullscreen_layout);
         }
-        SetBackgroundColour(fullscreen ? *wxBLACK : wxNullColour);
-        Refresh();
+#ifdef __WXOSX__
+        if (fullscreen)
+                monitor->SetFullscreen(true, TopSafeInset());
 #endif
         SendSizeEvent();
         if (fullscreen)
@@ -393,17 +830,15 @@ void DisplayFrame::SetStatusField(int field, const wxString &text) {
 }
 
 void DisplayFrame::SetStatus(const char *message, int speed, int fps) {
+        last_speed = speed;
+        last_fps = fps;
         SetStatusField(0, message);
         SetStatusField(2, wxString::Format("Speed: %d%%", speed));
         SetStatusField(3, wxString::Format("FPS: %d", fps));
-
-        wxStatusBar *status = GetStatusBar();
-        if (!status)
-                return;
-        if (drives->UpdateDrives())
-                LayoutStatus();
 #ifdef __WXOSX__
-        status->Update();
+        wxStatusBar *status = GetStatusBar();
+        if (status)
+                status->Update();
 #endif
 }
 
@@ -419,10 +854,11 @@ void DisplayFrame::HostSetSize(void *frame, int width, int height, int resizable
         ((DisplayFrame *)frame)->SetDisplaySize(width, height, resizable != 0);
 }
 
+/* Window position, and the size of the screen (what HostSetSize sets). */
 void DisplayFrame::HostGetRect(void *frame, int *x, int *y, int *width, int *height) {
         DisplayFrame *f = (DisplayFrame *)frame;
         wxPoint pos = f->GetPosition();
-        wxSize size = f->GetClientSize();
+        wxSize size = f->canvas->GetClientSize();
         *x = pos.x;
         *y = pos.y;
         *width = size.x;
@@ -431,7 +867,18 @@ void DisplayFrame::HostGetRect(void *frame, int *x, int *y, int *width, int *hei
 
 void DisplayFrame::HostSetPosition(void *frame, int x, int y) { ((DisplayFrame *)frame)->SetPosition(wxPoint(x, y)); }
 
-void DisplayFrame::HostCenter(void *frame) { ((DisplayFrame *)frame)->CenterOnScreen(); }
+/* Places a new window where this machine's window was last time, else centred. */
+void DisplayFrame::HostCenter(void *frame) {
+        DisplayFrame *f = (DisplayFrame *)frame;
+        int x = wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "x", INT_MIN);
+        int y = wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "y", INT_MIN);
+        if (x != INT_MIN && y != INT_MIN && wxDisplay::GetFromPoint(wxPoint(x + 40, y + 20)) != wxNOT_FOUND)
+                f->SetPosition(wxPoint(x, y));
+        else
+                f->CenterOnScreen();
+        if (wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "maximized", 0))
+                f->Maximize();
+}
 
 void DisplayFrame::HostShow(void *frame, int show) { ((DisplayFrame *)frame)->ShowDisplay(show != 0); }
 

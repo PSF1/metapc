@@ -48,6 +48,7 @@ class App : public wxApp {
         App();
         virtual bool OnInit();
         virtual int OnRun();
+        virtual int OnExit();
         Frame *GetFrame() { return frame; }
 
     private:
@@ -80,6 +81,7 @@ class Frame : public wxFrame {
         void ToggleVisible();
         void ShowStatus();
         void CloseStatus();
+        void ManagerClosed();
 
     private:
         void OnCommand(wxCommandEvent &event);
@@ -91,7 +93,6 @@ class Frame : public wxFrame {
         void OnCallbackEvent(CallbackEvent &event);
         void OnClose(wxCloseEvent &event);
 
-        void ShowConfigSelection();
         void QueueCommand(wxEventType type, int value);
         wxMenuBar *menu;
 

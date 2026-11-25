@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
+	<!-- Machine manager toolbar -->
+	<object class="wxBitmap" name="BITMAP_MGR_NEW">icons/32x32/computer_add.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_SETTINGS">icons/32x32/computer_edit.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_START">icons/32x32/computer_go.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_COPY">icons/32x32/add.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_RENAME">icons/32x32/textfield_rename.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_DELETE">icons/32x32/computer_delete.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_NETWORK">icons/32x32/network_ethernet.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_MACHINE">icons/32x32/widescreen.png</object>
+
+	<!-- Details sections and machine window panels -->
+	<object class="wxBitmap" name="BITMAP_MOTHERBOARD">icons/16x16/motherboard.png</object>
+	<object class="wxBitmap" name="BITMAP_VIDEO">icons/16x16/video_mode.png</object>
+	<object class="wxBitmap" name="BITMAP_SOUND">icons/16x16/sound.png</object>
+	<object class="wxBitmap" name="BITMAP_NETWORK">icons/16x16/network_ethernet.png</object>
+	<object class="wxBitmap" name="BITMAP_PORT">icons/16x16/port.png</object>
+	<object class="wxBitmap" name="BITMAP_GENERAL">icons/16x16/setting_tools.png</object>
+	<object class="wxBitmap" name="BITMAP_RUNNING">icons/16x16/control_play_blue.png</object>
+	<object class="wxBitmap" name="BITMAP_EJECT">icons/16x16/control_eject.png</object>
+	<object class="wxBitmap" name="BITMAP_FOLDER">icons/16x16/folder.png</object>
+	<object class="wxBitmap" name="BITMAP_PLAY24">icons/24x24/play.png</object>
+	<object class="wxBitmap" name="BITMAP_PAUSE24">icons/24x24/pause.png</object>
+	<object class="wxBitmap" name="BITMAP_STOP24">icons/24x24/stop.png</object>
+	<object class="wxBitmap" name="BITMAP_RESET24">icons/24x24/refresh.png</object>
+</resource>

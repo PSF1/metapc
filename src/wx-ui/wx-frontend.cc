@@ -3,12 +3,12 @@
 #include "wx-utils.h"
 #include "wx-app.h"
 #include "wx-common.h"
-#include "wx-config_sel.h"
 #include "wx-shader_man.h"
 #include "wx-customresolution.h"
 #include "wx-createdisc.h"
 #include "wx-frontend.h"
 #include "wx-display.h"
+#include "wx-panels.h"
 
 #include <wx/spinctrl.h>
 #include <wx/wfstream.h>
@@ -420,7 +420,6 @@ void wx_frontend_init() {
         add_config_callback(wx_loadconfig, wx_saveconfig, NULL);
 }
 
-bool wx_load_config(wxWindow *hwnd) { return config_override || ConfigSelectionDialog::Open(NULL, false); }
 
 int wx_start(wxWindow *hwnd) {
         ghwnd = (Frame *)hwnd;
@@ -463,21 +462,47 @@ static void pause_and_reset(void (*reset)(void)) {
         pauseEmulation = 0;
 }
 
+void wx_load_disc_file(int drive, const wxString &file) {
+        disc_close(drive);
+        disc_load(drive, (char *)(const char *)file.mb_str());
+        if (!drive_empty[drive]) {
+                drivesnd_ui_fdd_insert(drive);
+                wx_recent_add("floppy", file);
+        }
+        saveconfig(NULL);
+}
+
 static void load_disc(wxWindow *hwnd, int drive) {
         wxString file;
-        if (wx_getfile(hwnd, "Disc image (*.img;*.ima;*.fdi)|*.img;*.ima;*.fdi|All files (*.*)|*.*", discfns[drive], file)) {
-                disc_close(drive);
-                disc_load(drive, (char *)(const char *)file.mb_str());
-                if (!drive_empty[drive])
-                        drivesnd_ui_fdd_insert(drive);
-                saveconfig(NULL);
-        }
+        if (wx_getfile(hwnd, "Disc image (*.img;*.ima;*.fdi)|*.img;*.ima;*.fdi|All files (*.*)|*.*", discfns[drive], file))
+                wx_load_disc_file(drive, file);
 }
 
 static void eject_cdrom() {
         atapi->exit();
         atapi_close();
         drivesnd_ui_cd_change();
+}
+
+void wx_load_cdrom_image(const wxString &file) {
+        char temp_image_path[1024];
+        wx_strlcpy(temp_image_path, file, sizeof(temp_image_path));
+        old_cdrom_drive = cdrom_drive;
+        if (strcmp(image_path, temp_image_path) || cdrom_drive != CDROM_IMAGE) {
+                eject_cdrom();
+                image_open(temp_image_path);
+                cdrom_drive = CDROM_IMAGE;
+                cdrom_host_remember(0);
+                wx_recent_add("cdrom", file);
+                saveconfig(NULL);
+        }
+        update_cdrom_menu();
+}
+
+void wx_load_zip_file(const wxString &file) {
+        zip_load((char *)(const char *)file.mb_str());
+        wx_recent_add("zip", file);
+        saveconfig(NULL);
 }
 
 static bool hotkey_held(wxKeyCode key) {
@@ -528,7 +553,7 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
         } else if (id == XRCID("IDM_DISC_ZIP")) {
                 wxString file;
                 if (wx_getfile(hwnd, "Disc image (*.img)|*.img|All files (*.*)|*.*", "", file))
-                        zip_load((char *)(const char *)file.mb_str());
+                        wx_load_zip_file(file);
         } else if (id == XRCID("IDM_EJECT_ZIP")) {
                 zip_eject();
         } else if (id == XRCID("IDM_CASSETTE_LOAD")) {
@@ -664,19 +689,10 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
                 update_cdrom_menu();
         } else if (id == XRCID("IDM_CDROM_IMAGE") || id == XRCID("IDM_CDROM_IMAGE_LOAD")) {
                 wxString file;
-                if (wx_getfile(hwnd, "CD-ROM image (*.iso;*.cue)|*.iso;*.cue|All files (*.*)|*.*", image_path, file)) {
-                        char temp_image_path[1024];
-                        wx_strlcpy(temp_image_path, file, sizeof(temp_image_path));
-                        old_cdrom_drive = cdrom_drive;
-                        if (strcmp(image_path, temp_image_path) || cdrom_drive != CDROM_IMAGE) {
-                                eject_cdrom();
-                                image_open(temp_image_path);
-                                cdrom_drive = CDROM_IMAGE;
-                                cdrom_host_remember(0);
-                                saveconfig(NULL);
-                        }
-                }
-                update_cdrom_menu();
+                if (wx_getfile(hwnd, "CD-ROM image (*.iso;*.cue)|*.iso;*.cue|All files (*.*)|*.*", image_path, file))
+                        wx_load_cdrom_image(file);
+                else
+                        update_cdrom_menu();
 #if __linux__
         } else if (id == IDM_CDROM_DEVICE) {
                 wxString path;

@@ -4,7 +4,9 @@ set(PCEM_PRIVATE_API ${PCEM_PRIVATE_API}
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-app.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-common.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-config.h
-        ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-config_sel.h
+        ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-machineinfo.h
+        ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-manager.h
+        ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-panels.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-createdisc.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-customresolution.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-deviceconfig.h
@@ -28,7 +30,7 @@ set(PCEM_WX_XRC
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-display.xrc
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-status.xrc
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-config.xrc
-        ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-config_sel.xrc
+        ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-manager.xrc
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-hdnew.xrc
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-hdsize.xrc
         ${CMAKE_CURRENT_SOURCE_DIR}/wx-ui/wx-hostconfig.xrc
@@ -45,7 +47,9 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/wx-ui/wx-resources.cpp
 set(PCEM_SRC ${PCEM_SRC}
         ${PCEM_WX_XRC}
         wx-ui/wx-main.cc
-        wx-ui/wx-config_sel.cc
+        wx-ui/wx-manager.cc
+        wx-ui/wx-machineinfo.cc
+        wx-ui/wx-panels.cc
         wx-ui/wx-utils.cc
         wx-ui/wx-display.cc
         wx-ui/wx-app.cc
