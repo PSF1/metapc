@@ -88,6 +88,7 @@ int trigger_fullscreen = 0;
 int trigger_screenshot = 0;
 int trigger_togglewindow = 0;
 int trigger_inputrelease = 0;
+int trigger_turbo = 0;
 
 PCEM_API extern void device_force_redraw();
 extern void mouse_wheel_update(int);
@@ -800,6 +801,12 @@ static int display_status_update(void *data) {
         else
                 strcpy(s, "Press " RELEASE_KEY_NAME " or middle button to release mouse");
 
+        if (emu_turbo && emulation_state != EMULATION_PAUSED) {
+                char hint[sizeof(s)];
+                strcpy(hint, s);
+                snprintf(s, sizeof(s), "TURBO (Ctrl+Alt+Home) - %s", hint);
+        }
+
         if (is_embedded()) {
                 if (host->panel_set_status)
                         host->panel_set_status(display_frame, s, fps, render_fps);
@@ -1469,6 +1476,13 @@ int render() {
         else if (trigger_screenshot) {
                 trigger_screenshot = 0;
                 take_screenshot = 1;
+        } else if ((rawinputkey[sdl_scancode(SDL_SCANCODE_HOME)] || rawinputkey[sdl_scancode(SDL_SCANCODE_KP_7)]) &&
+                   (rawinputkey[sdl_scancode(SDL_SCANCODE_LCTRL)] || rawinputkey[sdl_scancode(SDL_SCANCODE_RCTRL)]) &&
+                   (rawinputkey[sdl_scancode(SDL_SCANCODE_LALT)] || rawinputkey[sdl_scancode(SDL_SCANCODE_RALT)]))
+                trigger_turbo = 1;
+        else if (trigger_turbo) {
+                trigger_turbo = 0;
+                emu_turbo = !emu_turbo;
         } else if (release_keys_down())
                 trigger_inputrelease = 1;
         else if (trigger_inputrelease) {

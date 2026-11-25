@@ -167,6 +167,11 @@ int clocks[3][12][4] = {{
 int updatestatus = 0;
 int win_title_update = 0;
 
+volatile int emu_speed = 1;
+volatile int emu_turbo = 0;
+
+int emu_speed_effective() { return emu_turbo ? EMU_SPEED_UNLIMITED : emu_speed; }
+
 void onesec() {
         fps = framecount;
         framecount = 0;

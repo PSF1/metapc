@@ -18,6 +18,8 @@
 
 	<ids-range name="IDM_SND_GAIN" start="2100" />
 
+	<ids-range name="IDM_EMU_SPEED" start="2200" />
+
 	<ids-range name="IDM_VID_GL3_INPUT_STRETCH" start="3000" />
 
 	<ids-range name="IDM_VID_GL3_INPUT_SCALE" start="3100" />
@@ -32,6 +34,33 @@
 			</object>
 			<object class="wxMenuItem" name="IDM_FILE_RESET_CAD">
 				<label>_Ctrl+Alt+Del</label>
+			</object>
+			<object class="separator"/>
+			<object class="wxMenu">
+				<label>Emulation _speed</label>
+				<object class="wxMenuItem" name="IDM_EMU_SPEED[0]">
+					<label>_1x (real time)</label>
+					<radio>1</radio>
+				</object>
+				<object class="wxMenuItem" name="IDM_EMU_SPEED[1]">
+					<label>_2x</label>
+					<radio>1</radio>
+				</object>
+				<object class="wxMenuItem" name="IDM_EMU_SPEED[2]">
+					<label>_4x</label>
+					<radio>1</radio>
+				</object>
+				<object class="wxMenuItem" name="IDM_EMU_SPEED[3]">
+					<label>_8x</label>
+					<radio>1</radio>
+				</object>
+				<object class="wxMenuItem" name="IDM_EMU_SPEED[4]">
+					<label>_Unlimited</label>
+					<radio>1</radio>
+				</object>
+			</object>
+			<object class="wxMenuItem" name="IDM_EMU_TURBO">
+				<label>Toggle _turbo (unlimited)\tCtrl+Alt+Home</label>
 			</object>
 			<object class="separator"/>
 			<object class="wxMenuItem" name="IDM_FILE_EXIT">

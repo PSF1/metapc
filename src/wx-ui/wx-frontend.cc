@@ -217,6 +217,16 @@ static void wx_initmenu() {
         wx_refresh_host_cdrom_menu();
 }
 
+/* Menu entries of the Emulation speed submenu, in order. */
+static const int emu_speeds[] = {1, 2, 4, 8, EMU_SPEED_UNLIMITED};
+
+static int emu_speed_to_index(int speed) {
+        for (int i = 0; i < (int)(sizeof(emu_speeds) / sizeof(emu_speeds[0])); i++)
+                if (emu_speeds[i] == speed)
+                        return i;
+        return 0;
+}
+
 static int wx_setupmenu(void *data) {
         wx_refresh_host_cdrom_menu();
         update_viewers_menu(menu);
@@ -226,6 +236,7 @@ static int wx_setupmenu(void *data) {
         wx_checkmenuitem(menu, XRCID("IDM_VID_FULLSCREEN"), video_fullscreen);
         wx_checkmenuitem(menu, XRCID("IDM_VID_REMEMBER"), window_remember);
         wx_checkmenuitem(menu, XRCID("IDM_BPB_DISABLE"), bpb_disable);
+        wx_checkmenuitem(menu, xrcid_index("IDM_EMU_SPEED", emu_speed_to_index(emu_speed)), true);
 
         wx_checkmenuitem(menu, xrcid_index("IDM_SND_BUF", (int)(log(sound_buf_len / MIN_SND_BUF) / log(2))), true);
         wx_checkmenuitem(menu, xrcid_index("IDM_SND_GAIN", (int)(sound_gain / 2)), true);
@@ -491,6 +502,13 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
                 pause_and_reset(resetpc_cad);
         } else if (id == XRCID("IDM_FILE_EXIT")) {
                 ((Frame *)hwnd)->StopEmulation();
+        } else if (id_in_range(id, "IDM_EMU_SPEED", &index)) {
+                if (index < (int)(sizeof(emu_speeds) / sizeof(emu_speeds[0])))
+                        emu_speed = emu_speeds[index];
+                wx_checkmenuitem(menu, id, true);
+        } else if (id == XRCID("IDM_EMU_TURBO")) {
+                if (!hotkey_held(WXK_HOME))
+                        emu_turbo = !emu_turbo;
         } else if (id == XRCID("IDM_DISC_A")) {
                 load_disc(hwnd, 0);
         } else if (id == XRCID("IDM_DISC_B")) {

@@ -421,6 +421,13 @@ void resetpc();
 void resetpchard();
 void speedchanged();
 
+/* Emulation speed multiplier relative to real time (1 = normal). EMU_SPEED_UNLIMITED runs as fast as
+   the host allows. emu_turbo, toggled by a hotkey, overrides the selected speed with unlimited. */
+#define EMU_SPEED_UNLIMITED 0
+extern volatile int emu_speed;
+extern volatile int emu_turbo;
+int emu_speed_effective();
+
 void saveconfig(char *fn);
 void saveconfig_global_only();
 

@@ -121,15 +121,23 @@ int mainthread(void *param) {
         old_time = SDL_GetTicks();
         running = 1;
         while (running) {
+                /* Each runpc() emulates 10 ms of guest time; drawits holds the guest time owed, in ms.
+                   A speed multiplier of N earns N ms of guest time per real ms. */
+                int speed = emu_speed_effective();
+
                 new_time = SDL_GetTicks();
-                drawits += new_time - old_time;
+                if (speed == EMU_SPEED_UNLIMITED)
+                        drawits = 10;
+                else
+                        drawits += (int)(new_time - old_time) * speed;
                 old_time = new_time;
 
                 if (drawits > 0 && !pauseEmulation) {
                         uint64_t start_time = timer_read();
                         uint64_t end_time;
                         drawits -= 10;
-                        if (drawits > 50)
+                        /* Host can't keep up: drop the backlog rather than trying to catch up. */
+                        if (drawits > 50 * (speed > 1 ? speed : 1))
                                 drawits = 0;
                         runpc();
                         frames++;

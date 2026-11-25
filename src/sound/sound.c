@@ -191,6 +191,9 @@ static void sound_cd_thread(void *param) {
                                 cd_buffer[c + 1] = cd_buffer_temp[1];
                         }
 
+                        if (emu_speed_effective() != 1)
+                                memset(cd_buffer, 0, sizeof(cd_buffer));
+
                         givealbuffer_cd(cd_buffer);
                 }
         }
@@ -246,6 +249,11 @@ void sound_poll(void *priv) {
 
                         if (!soundf) soundf=fopen("sound.pcm","wb");
                         fwrite(buf16,(sound_buf_len_al)*2*2,1,soundf);*/
+
+                /* Faster than real time the buffers arrive quicker than they play and get dropped, which
+                   sounds like noise: send silence instead. */
+                if (emu_speed_effective() != 1)
+                        memset(outbuffer, 0, sound_buf_len_al * 2 * sizeof(int32_t));
 
                 if (soundon)
                         givealbuffer(outbuffer);
