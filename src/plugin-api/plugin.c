@@ -105,13 +105,13 @@ static void load_plugin_file(const char *dir_path, const char *filename) {
 
         api_version = (const int *)plugin_symbol(handle, "pcem_plugin_api_version");
         if (!api_version) {
-                error("Cannot load plugin %s: no pcem_plugin_api_version, rebuild it against the current PCem headers\n",
+                error("Cannot load plugin %s: no pcem_plugin_api_version, rebuild it against the current metaPC headers\n",
                       full_path);
                 plugin_close(handle);
                 return;
         }
         if (*api_version != PCEM_PLUGIN_API_VERSION) {
-                error("Cannot load plugin %s: built for plugin API version %d, PCem provides version %d\n", full_path,
+                error("Cannot load plugin %s: built for plugin API version %d, metaPC provides version %d\n", full_path,
                       *api_version, PCEM_PLUGIN_API_VERSION);
                 plugin_close(handle);
                 return;

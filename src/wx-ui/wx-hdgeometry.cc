@@ -31,16 +31,16 @@ void HdGeometryDialog::AppendHdTypes(wxComboBox *cb) {
 
 bool HdGeometryDialog::ValidateGeometry(wxWindow *parent, const HdGeometry &g) {
         if (g.spt > 63) {
-                wx_messagebox(parent, "Drive has too many sectors (maximum is 63)", "PCem error", wxOK);
+                wx_messagebox(parent, "Drive has too many sectors (maximum is 63)", "metaPC error", wxOK);
                 return false;
         }
         if (g.hpc > 16) {
-                wx_messagebox(parent, "Drive has too many heads (maximum is 16)", "PCem error", wxOK);
+                wx_messagebox(parent, "Drive has too many heads (maximum is 16)", "metaPC error", wxOK);
                 return false;
         }
         if (g.cyl > MAX_CYLINDERS) {
                 wx_messagebox(parent, wxString::Format("Drive has too many cylinders (maximum is %i)", MAX_CYLINDERS),
-                              "PCem error", wxOK);
+                              "metaPC error", wxOK);
                 return false;
         }
         return true;

@@ -1,15 +1,22 @@
-# [PCem](https://pcem-emulator.co.uk/)
-![GitHub Actions](https://github.com/sarah-walker-pcem/pcem/actions/workflows/workflow.yml/badge.svg)
+# metaPC
+metaPC is a fork of [PCem](https://pcem-emulator.co.uk/), the IBM PC emulator.
 
-## AI Policy
-PCem is AI-free, and will not accept any AI generated code, AI generated/assisted code is not allowed in PCem. Pull Requests with 
-AI generated code will be rejected. Code subsequently discovered to be AI generated/assisted will be removed without warning.
+Copyright (C) 2026 Pedro A. Pelaez for the metaPC changes. PCem is
+Copyright (C) 2007-2020 Sarah Walker and Contributors and Copyright (C) 2021-2026 Michael Manley,
+Sarah Walker and Contributors.
+
+metaPC is an independent project and is not affiliated with or endorsed by the PCem project.
+
+## AI Use
+Much of the code added in metaPC was written with Claude (an AI model made by Anthropic), under
+Pedro A. Pelaez's direction and testing. PCem does not accept AI generated or assisted code, so
+**do not submit metaPC changes to the PCem project**.
 
 ## License
-PCem is licensed under GPL v2.0, see [COPYING](COPYING) for more details.
+metaPC, like PCem, is licensed under GPL v2.0, see [COPYING](COPYING) for more details.
 
 ## Patch Submission
-You can submit patches on our [forum](https://pcem-emulator.co.uk/phpBB3). Before you do, please note the [guidelines](https://pcem-emulator.co.uk/phpBB3/viewtopic.php?f=3&t=5) for submitting patches.
+Issues and pull requests go to [PSF1/metapc](https://github.com/PSF1/metapc), not to PCem.
 
 ## Note about ROM Files
 <b>NO COPYRIGHTED ROM FILES ARE INCLUDED NOR WILL THEY BE. PLEASE DO NOT ASK FOR THEM.</b>
@@ -26,13 +33,13 @@ You will need the following libraries and buildtools (and their dependencies):
 - LibSlirp
 - Ninja (Recommended, but you can use a Makefile generator if you prefer)
 
-Open a terminal window, navigate to the PCem directory, create a build directory, then enter in that build directory: 
+Open a terminal window, navigate to the metaPC directory, create a build directory, then enter in that build directory: 
 ```
 cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
 ninja
 ```
 
-then `./src/pcem` to run on most platforms, and open `./src/PCem.app` on macOS
+then `./src/pcem` to run on most platforms, and open `./src/metaPC.app` on macOS
 
 BIOS ROM images, configuration files, and other data are stored in `~/.pcem` on non-macOS platforms. You can also create a `.pcem` folder with
 the Binary, and run it in a portable mode.
@@ -47,20 +54,20 @@ default value.
   -DUSE_NETWORKING=ON        : Build with networking support.
   -DUSE_PCAP_NETWORKING=ON   : Build with pcap networking support. (Needs USE_NETWORKING to compile) Requires libpcap.
   -DFORCE_X11=ON             : Enables a hack to force X11 on Wayland systems. See #128 for details. (Linux Only)
-  -DPLUGIN_ENGINE=ON         : Build with plugin support. Builds libpcem-plugin-api and links PCem with it.
+  -DPLUGIN_ENGINE=ON         : Build with plugin support. Builds libpcem-plugin-api and links metaPC with it.
   -DPCEM_MARCH=x86_64-v2     : Change the architecture used for generated instructions, by default we set it for
                                >= Nehalem for Intel, and >= Bulldozer for AMD. 
 ```
 
 If you are using -DCMAKE_BUILD_TYPE=Debug, there are some more debug options you can enable if needed
 ```
-  -DPCEM_SLIRP_DEBUG=OFF           : Build PCem with SLIRP_DEBUG debug output
-  -DPCEM_RECOMPILER_DEBUG=OFF      : Build PCem with RECOMPILER_DEBUG debug output
-  -DPCEM_NE2000_DEBUG=OFF          : Build PCem with NE2000_DEBUG debug output
-  -DPCEM_EMU8K_DEBUG_REGISTERS=OFF : Build PCem with EMU8K_DEBUG_REGISTERS debug output
-  -DPCEM_SB_DSP_RECORD_DEBUG=OFF   : Build PCem with SB_DSP_RECORD_DEBUG debug output
-  -DPCEM_MACH64_DEBUG=OFF          : Build PCem with MACH64_DEBUG debug output
-  -DPCEM_DEBUG_EXTRA=OFF           : Build PCem with DEBUG_EXTRA debug output
+  -DPCEM_SLIRP_DEBUG=OFF           : Build metaPC with SLIRP_DEBUG debug output
+  -DPCEM_RECOMPILER_DEBUG=OFF      : Build metaPC with RECOMPILER_DEBUG debug output
+  -DPCEM_NE2000_DEBUG=OFF          : Build metaPC with NE2000_DEBUG debug output
+  -DPCEM_EMU8K_DEBUG_REGISTERS=OFF : Build metaPC with EMU8K_DEBUG_REGISTERS debug output
+  -DPCEM_SB_DSP_RECORD_DEBUG=OFF   : Build metaPC with SB_DSP_RECORD_DEBUG debug output
+  -DPCEM_MACH64_DEBUG=OFF          : Build metaPC with MACH64_DEBUG debug output
+  -DPCEM_DEBUG_EXTRA=OFF           : Build metaPC with DEBUG_EXTRA debug output
 ```
 
 If you are using -DCMAKE_BUILD_TYPE=RelWithDebInfo, there are additional options you can do
@@ -69,20 +76,20 @@ If you are using -DCMAKE_BUILD_TYPE=RelWithDebInfo, there are additional options
 ```
 
 They are some extra modules you can add if you build with `-DUSE_EXPERIMENTAL=ON`. These modules are untested.
-incomplete, and may or may not be in a future build of PCem. We do not provide builds with these enabled as
+incomplete, and may or may not be in a future build of metaPC. We do not provide builds with these enabled as
 well. It is also possible they may not even build.
 ```
-  -DUSE_EXPERIMENTAL_PGC=ON       : Build PCem with Professional Graphics Controller support.
-  -DUSE_EXPERIMENTAL_PRINTER=ON   : Build PCem with Printer support. Requires freetype.
+  -DUSE_EXPERIMENTAL_PGC=ON       : Build metaPC with Professional Graphics Controller support.
+  -DUSE_EXPERIMENTAL_PRINTER=ON   : Build metaPC with Printer support. Requires freetype.
 ``` 
 
 CD-ROM support currently only accesses `/dev/cdrom`. It has not been heavily tested.
 
-On Windows, if you want to use PCAP networking, you will need to install [npcap](https://npcap.com) and replace the libpcap.dll in PCem dir using the wpcap.dll installed in C:\Windows\System32  
+On Windows, if you want to use PCAP networking, you will need to install [npcap](https://npcap.com) and replace the libpcap.dll in the metaPC dir using the wpcap.dll installed in C:\Windows\System32  
 
 ## Links
 
-### [PCem emulates the following hardware](SYSTEMS.md):
+### [metaPC emulates the following hardware](SYSTEMS.md):
 Hardware | Links
 --- | ---
 Systems | [8088](SYSTEMS.md#8088-based)<br/>[8086](SYSTEMS.md#8086-based)<br/>[286](SYSTEMS.md#286-based)<br/>[386](SYSTEMS.md#386-based)<br/>[486](SYSTEMS.md#486-based)<br/>[Pentium](SYSTEMS.md#pentium-based)<br/>[Super Socket 7](SYSTEMS.md#super-socket-7-based)

@@ -605,7 +605,7 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
         } else if (id == XRCID("IDM_VID_FULLSCREEN")) {
                 if (video_fullscreen_first) {
                         video_fullscreen_first = 0;
-                        wx_messagebox(hwnd, "Use CTRL + ALT + PAGE DOWN to return to windowed mode", "PCem", wxOK);
+                        wx_messagebox(hwnd, "Use CTRL + ALT + PAGE DOWN to return to windowed mode", "metaPC", wxOK);
                 }
                 video_fullscreen = !video_fullscreen;
                 wx_checkmenuitem(menu, id, video_fullscreen);
@@ -696,7 +696,7 @@ void wx_handle_command(wxWindow *hwnd, int id, bool checked) {
 #if __linux__
         } else if (id == IDM_CDROM_DEVICE) {
                 wxString path;
-                if (wx_textentrydialog(hwnd, "CD-ROM device path:", "PCem", cdrom_device_path, 1, sizeof(cdrom_device_path) - 1,
+                if (wx_textentrydialog(hwnd, "CD-ROM device path:", "metaPC", cdrom_device_path, 1, sizeof(cdrom_device_path) - 1,
                                        path)) {
                         old_cdrom_drive = cdrom_drive;
                         eject_cdrom();

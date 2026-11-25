@@ -110,7 +110,7 @@ class MachineListBox : public wxVListBox {
 /* ---------------------------------------------------------------- manager frame */
 
 ManagerFrame::ManagerFrame(Frame *app_frame)
-        : wxFrame(NULL, wxID_ANY, "PCem Machine Manager", wxDefaultPosition, wxDefaultSize), app_frame(app_frame),
+        : wxFrame(NULL, wxID_ANY, "metaPC Machine Manager", wxDefaultPosition, wxDefaultSize), app_frame(app_frame),
           timer(this), details_running(false) {
         wx_set_app_icon(this);
 
@@ -190,7 +190,7 @@ void ManagerFrame::BuildMenu() {
         menubar->Append(machine, "&Machine");
 
         wxMenu *help = new wxMenu();
-        help->Append(wxID_ABOUT, "&About PCem...");
+        help->Append(wxID_ABOUT, "&About metaPC...");
         menubar->Append(help, "&Help");
 
         SetMenuBar(menubar);
@@ -468,7 +468,7 @@ void ManagerFrame::OnStart(wxCommandEvent &event) {
         const wchar_t *argv[] = {exe_w.data(), L"--config", cfg_w.data(), NULL};
         long pid = wxExecute(argv, wxEXEC_ASYNC);
         if (pid <= 0) {
-                wx_messagebox(this, wxString::Format("Could not start \"%s\".", m.name), "PCem", wxOK | wxICON_ERROR);
+                wx_messagebox(this, wxString::Format("Could not start \"%s\".", m.name), "metaPC", wxOK | wxICON_ERROR);
                 return;
         }
         pclog("Launched machine %s (pid %ld)\n", (const char *)m.name.mb_str(), pid);
@@ -508,7 +508,7 @@ void ManagerFrame::OnDelete(wxCommandEvent &event) {
         if (sel < 0 || machines[sel].running || machines[sel].starting)
                 return;
         wxString name = machines[sel].name;
-        if (wx_messagebox(this, wxString::Format("Do you want to delete \"%s\"?", name), "PCem", wxOK | wxCANCEL) == wxOK) {
+        if (wx_messagebox(this, wxString::Format("Do you want to delete \"%s\"?", name), "metaPC", wxOK | wxCANCEL) == wxOK) {
                 wxRemoveFile(ConfigPath(name));
                 RefreshMachines(true);
         }

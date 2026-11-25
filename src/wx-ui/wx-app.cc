@@ -47,7 +47,7 @@ int App::OnExit() {
 }
 
 bool App::OnInit() {
-        SetAppDisplayName("PCem");
+        SetAppDisplayName("metaPC");
         wxImage::AddHandler(new wxPNGHandler);
         wxXmlResource::Get()->InitAllHandlers();
         InitXmlResource();
@@ -118,7 +118,7 @@ void Frame::Start() {
                 return;
         }
         if (!lock_machine()) {
-                wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "PCem",
+                wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "metaPC",
                               wxOK | wxICON_INFORMATION);
                 Quit(1);
                 return;

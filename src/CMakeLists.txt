@@ -102,9 +102,9 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
                 MACOSX_BUNDLE TRUE
                 BUILD_WITH_INSTALL_RPATH TRUE
                 INSTALL_RPATH "@executable_path/../Frameworks"
-                OUTPUT_NAME PCem
+                OUTPUT_NAME metaPC
                 MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/cmake/macos/Info.plist.in
-                MACOSX_BUNDLE_BUNDLE_NAME PCem
+                MACOSX_BUNDLE_BUNDLE_NAME metaPC
                 MACOSX_BUNDLE_ICON_FILE pcem.icns
                 MACOSX_BUNDLE_GUI_IDENTIFIER uk.co.pcem-emulator.PCem
                 XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER uk.co.pcem-emulator.PCem

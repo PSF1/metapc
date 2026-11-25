@@ -228,7 +228,7 @@ int wx_window_x = 0;
 int wx_window_y = 0;
 
 StatusFrame::StatusFrame(wxWindow *parent)
-        : wxFrame(parent, STATUS_WINDOW_ID, "PCem Machine", wxPoint(0, 0), wxSize(DEFAULT_WINDOW_WIDTH, 200),
+        : wxFrame(parent, STATUS_WINDOW_ID, "metaPC Machine", wxPoint(0, 0), wxSize(DEFAULT_WINDOW_WIDTH, 200),
                   wxCAPTION | wxCLOSE_BOX) {
         wx_set_app_icon(this);
         SetMenuBar(wxXmlResource::Get()->LoadMenuBar(wxT("status_menu")));
@@ -308,7 +308,7 @@ void StatusFrame::OnCommand(wxCommandEvent &event) {
         else if (event.GetId() == XRCID("IDM_RESET_CONFIRMATION_DIALOGS")) {
                 confirm_on_reset_machine = 1;
                 confirm_on_stop_emulation = 1;
-                wxMessageBox("Confirmation dialogs has been reset.", "PCem");
+                wxMessageBox("Confirmation dialogs has been reset.", "metaPC");
         } else if (event.GetId() == XRCID("IDM_ABOUT")) {
                 wxDialog dlg;
                 wxXmlResource::Get()->LoadDialog(&dlg, this, "AboutDlg");

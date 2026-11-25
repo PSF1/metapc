@@ -24,7 +24,7 @@
 
 	<object class="wxDialog" name="ConfigureDlg">
 		<style>wxDEFAULT_DIALOG_STYLE</style>
-		<title>Configure PCem</title>
+		<title>Configure metaPC</title>
 		<centered>1</centered>
 		<object class="wxPanel" name="ROOT_PANEL">
 			<object class="wxBoxSizer">

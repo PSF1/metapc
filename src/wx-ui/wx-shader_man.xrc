@@ -2,7 +2,7 @@
 <resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
 	<object class="wxDialog" name="ShaderManagerDlg">
 		<style>wxDEFAULT_DIALOG_STYLE|wxSTAY_ON_TOP</style>
-		<title>PCem Shader Manager</title>
+		<title>metaPC Shader Manager</title>
 		<centered>1</centered>
 		<object class="wxPanel" name="ROOT_PANEL">
 			<object class="wxBoxSizer">

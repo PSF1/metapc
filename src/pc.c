@@ -207,7 +207,7 @@ void initpc(int argc, char *argv[]) {
 
         for (c = 1; c < argc; c++) {
                 if (!strcasecmp(argv[c], "--help")) {
-                        printf("PCem command line options :\n\n");
+                        printf("metaPC command line options :\n\n");
                         printf("--config file.cfg - use given config file as initial configuration\n");
                         printf("--fullscreen      - start in fullscreen mode\n");
                         printf("--load_drive_a file.img - load drive A: with the given disc image\n");
@@ -548,7 +548,7 @@ void runpc() {
         }
         if (win_title_update) {
                 win_title_update = 0;
-                sprintf(s, "PCem " PCEM_VERSION_STRING " - %s - %s - %s", config_name, model_getname(),
+                sprintf(s, "metaPC " PCEM_VERSION_STRING " - %s - %s - %s", config_name, model_getname(),
                         models[model]->cpu[cpu_manufacturer].cpus[cpu].name);
 #ifdef __APPLE__
                 // Needed due to modifying the UI on the non-main thread is a big no-no.
