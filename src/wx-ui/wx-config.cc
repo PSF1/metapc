@@ -494,10 +494,12 @@ int ConfigDialog::SelectedFpuType(int model_index, int manu, int cpu_index) {
         return fpu_get_type_from_index(model_index, manu, cpu_index, SelectedIndex(cb_fpu));
 }
 
-void ConfigDialog::UpdateMemoryUnit(int model_index) {
-        bool mb = (models[model_index]->flags & MODEL_AT) && models[model_index]->ram_granularity < 128;
-        text_mem_unit->SetLabel(mb ? "MB" : "KB");
+/* Whether the memory spinner counts this model's RAM in MB (else in KB). */
+static bool memory_in_mb(int model_index) {
+        return (models[model_index]->flags & MODEL_AT) && models[model_index]->ram_granularity < 128;
 }
+
+void ConfigDialog::UpdateMemoryUnit(int model_index) { text_mem_unit->SetLabel(memory_in_mb(model_index) ? "MB" : "KB"); }
 
 void ConfigDialog::UpdateJoystickButtons(int type) {
         for (int c = 0; c < 4; c++)
@@ -748,6 +750,7 @@ void ConfigDialog::OnModelChanged(wxCommandEvent &event) {
 
         bool force_ide = (models[temp_model]->flags & MODEL_HAS_IDE) && !(models[prev_model]->flags & MODEL_HAS_IDE);
         bool force_builtin_video = model_has_optional_gfx(temp_model);
+        int old_model = prev_model;
         prev_model = temp_model;
 
         PopulateCpuManufacturers(temp_model, SelectedIndex(cb_cpu_manu));
@@ -759,6 +762,11 @@ void ConfigDialog::OnModelChanged(wxCommandEvent &event) {
         UpdateMemoryUnit(temp_model);
 
         int mem = spin_mem->GetValue();
+        /* Keep the amount, not the number: 640 KB must not become 640 MB. */
+        if (!memory_in_mb(old_model) && memory_in_mb(temp_model))
+                mem /= 1024;
+        else if (memory_in_mb(old_model) && !memory_in_mb(temp_model))
+                mem *= 1024;
         spin_mem->SetRange(models[temp_model]->min_ram, models[temp_model]->max_ram);
         mem &= ~(models[temp_model]->ram_granularity - 1);
         if (mem < models[temp_model]->min_ram)
