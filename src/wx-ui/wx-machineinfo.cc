@@ -196,3 +196,7 @@ wxString wx_machine_instance_name(const wxString &config_path) {
         }
         return wxString::Format("PCem-%s-%016llx", wxGetUserId(), hash);
 }
+
+wxString wx_machine_pid_file(const wxString &config_path) {
+        return wxFileName(wxFileName::GetTempDir(), wx_machine_instance_name(config_path) + ".pid").GetFullPath();
+}

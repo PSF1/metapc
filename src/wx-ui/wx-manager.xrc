@@ -4,6 +4,7 @@
 	<object class="wxBitmap" name="BITMAP_MGR_NEW">icons/32x32/computer_add.png</object>
 	<object class="wxBitmap" name="BITMAP_MGR_SETTINGS">icons/32x32/computer_edit.png</object>
 	<object class="wxBitmap" name="BITMAP_MGR_START">icons/32x32/computer_go.png</object>
+	<object class="wxBitmap" name="BITMAP_MGR_STOP">icons/32x32/control_stop.png</object>
 	<object class="wxBitmap" name="BITMAP_MGR_COPY">icons/32x32/add.png</object>
 	<object class="wxBitmap" name="BITMAP_MGR_RENAME">icons/32x32/textfield_rename.png</object>
 	<object class="wxBitmap" name="BITMAP_MGR_DELETE">icons/32x32/computer_delete.png</object>

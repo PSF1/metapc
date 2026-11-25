@@ -13,9 +13,16 @@
 #include <wx/stdpaths.h>
 #include <wx/utils.h>
 #include <wx/xrc/xmlres.h>
+#include <wx/textfile.h>
+#include <wx/process.h>
 
 #include <algorithm>
 #include <climits>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 extern "C" {
 #include "ibm.h"
@@ -31,6 +38,7 @@ enum {
         ID_MGR_NEW = wxID_HIGHEST + 4000,
         ID_MGR_SETTINGS,
         ID_MGR_START,
+        ID_MGR_STOP,
         ID_MGR_COPY,
         ID_MGR_RENAME,
         ID_MGR_DELETE,
@@ -148,6 +156,7 @@ ManagerFrame::ManagerFrame(Frame *app_frame)
         Bind(wxEVT_MENU, &ManagerFrame::OnNew, this, ID_MGR_NEW);
         Bind(wxEVT_MENU, &ManagerFrame::OnSettings, this, ID_MGR_SETTINGS);
         Bind(wxEVT_MENU, &ManagerFrame::OnStart, this, ID_MGR_START);
+        Bind(wxEVT_MENU, &ManagerFrame::OnStop, this, ID_MGR_STOP);
         Bind(wxEVT_MENU, &ManagerFrame::OnCopy, this, ID_MGR_COPY);
         Bind(wxEVT_MENU, &ManagerFrame::OnRename, this, ID_MGR_RENAME);
         Bind(wxEVT_MENU, &ManagerFrame::OnDelete, this, ID_MGR_DELETE);
@@ -183,6 +192,7 @@ void ManagerFrame::BuildMenu() {
         machine->Append(ID_MGR_NEW, "&New...\tCtrl+N");
         machine->Append(ID_MGR_SETTINGS, "&Settings...\tCtrl+S");
         machine->Append(ID_MGR_START, "S&tart\tCtrl+Enter");
+        machine->Append(ID_MGR_STOP, "&Force stop...");
         machine->AppendSeparator();
         machine->Append(ID_MGR_COPY, "&Clone...");
         machine->Append(ID_MGR_RENAME, "&Rename...\tF2");
@@ -201,6 +211,8 @@ void ManagerFrame::BuildToolBar() {
         tb->AddTool(ID_MGR_NEW, "New", load_bitmap("BITMAP_MGR_NEW"), "Create a new machine");
         tb->AddTool(ID_MGR_SETTINGS, "Settings", load_bitmap("BITMAP_MGR_SETTINGS"), "Change the selected machine's hardware");
         tb->AddTool(ID_MGR_START, "Start", load_bitmap("BITMAP_MGR_START"), "Start the selected machine in a new window");
+        tb->AddTool(ID_MGR_STOP, "Stop", load_bitmap("BITMAP_MGR_STOP"),
+                    "Force the selected machine's process to stop (for a machine that does not respond)");
         tb->AddSeparator();
         tb->AddTool(ID_MGR_COPY, "Clone", load_bitmap("BITMAP_MGR_COPY"), "Copy the selected machine's configuration");
         tb->AddTool(ID_MGR_RENAME, "Rename", load_bitmap("BITMAP_MGR_RENAME"), "Rename the selected machine");
@@ -319,6 +331,7 @@ void ManagerFrame::UpdateCommands() {
         };
         enable(ID_MGR_SETTINGS, has && !busy);
         enable(ID_MGR_START, has && !busy);
+        enable(ID_MGR_STOP, busy);
         enable(ID_MGR_COPY, has);
         enable(ID_MGR_RENAME, has && !busy);
         enable(ID_MGR_DELETE, has && !busy);
@@ -473,9 +486,104 @@ void ManagerFrame::OnStart(wxCommandEvent &event) {
         }
         pclog("Launched machine %s (pid %ld)\n", (const char *)m.name.mb_str(), pid);
         launch_times[m.name] = wxGetLocalTimeMillis();
+        launch_pids[m.name] = pid;
         m.starting = true;
         list->RefreshRow(sel);
         UpdateCommands();
+}
+
+/* True if pid is a running process of this same program, so a stale pid file (whose number
+   Windows may have given to another process since) never makes us kill something else. */
+static bool is_our_process(long pid) {
+        if (pid <= 0 || (unsigned long)pid == wxGetProcessId())
+                return false;
+#ifdef _WIN32
+        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+        if (!h)
+                return false;
+        wchar_t path[MAX_PATH * 2];
+        DWORD len = MAX_PATH * 2;
+        bool ok = QueryFullProcessImageNameW(h, 0, path, &len) != 0;
+        DWORD code = 0;
+        bool alive = GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+        CloseHandle(h);
+        if (!ok || !alive)
+                return false;
+        wxFileName running(wxString(path, len)), self(wxStandardPaths::Get().GetExecutablePath());
+        return running.GetFullName().IsSameAs(self.GetFullName(), false);
+#else
+        return wxProcess::Exists(pid);
+#endif
+}
+
+/* The process id of a running (or starting) machine: the one it recorded itself, or else the
+   one this manager launched. 0 if none is known. */
+long ManagerFrame::MachinePid(const wxString &name) {
+        wxTextFile file;
+        wxString pid_file = wx_machine_pid_file(ConfigPath(name));
+        if (wxFileExists(pid_file) && file.Open(pid_file) && file.GetLineCount() > 0) {
+                long pid = 0;
+                if (file.GetFirstLine().Trim().ToLong(&pid) && is_our_process(pid))
+                        return pid;
+        }
+        auto it = launch_pids.find(name);
+        if (it != launch_pids.end() && is_our_process(it->second))
+                return it->second;
+        return 0;
+}
+
+/* Kills the selected machine's process, for a machine that hangs or does not respond. A
+   responsive machine should be shut down from its own window, which saves its state. */
+void ManagerFrame::OnStop(wxCommandEvent &event) {
+        int sel = SelectedIndex();
+        if (sel < 0)
+                return;
+        Machine &m = machines[sel];
+        if (!m.running && !m.starting)
+                return;
+        wxString name = m.name;
+
+        long pid = MachinePid(name);
+        if (!pid) {
+                wx_messagebox(this,
+                              wxString::Format("Could not find the process of \"%s\". If it is still running, close it "
+                                               "from its own window or from the Task Manager.",
+                                               name),
+                              "metaPC", wxOK | wxICON_ERROR);
+                return;
+        }
+
+        wxMessageDialog dlg(this,
+                            wxString::Format("Force \"%s\" to stop?\n\n"
+                                             "Its process (pid %ld) will be terminated immediately, as if the computer "
+                                             "lost power. Anything not saved inside the emulated machine is lost, the "
+                                             "CMOS settings and the last window layout are not saved, and its disk "
+                                             "images may be left inconsistent.\n\n"
+                                             "Use this only when the machine does not respond. Otherwise shut it down "
+                                             "from its own window.",
+                                             name, pid),
+                            "Force stop", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+        dlg.SetYesNoLabels("&Force stop", "&Cancel");
+        if (dlg.ShowModal() != wxID_YES)
+                return;
+
+        /* It may have exited while the question was open. */
+        if (!is_our_process(pid)) {
+                RefreshMachines(true);
+                return;
+        }
+        pclog("Force stopping machine %s (pid %ld)\n", (const char *)name.mb_str(), pid);
+        if (wxKill(pid, wxSIGKILL, NULL, wxKILL_CHILDREN) != wxKILL_OK && is_our_process(pid)) {
+                wx_messagebox(this, wxString::Format("Could not stop \"%s\".", name), "metaPC", wxOK | wxICON_ERROR);
+                return;
+        }
+        wxRemoveFile(wx_machine_pid_file(ConfigPath(name)));
+        launch_times.erase(name);
+        launch_pids.erase(name);
+        /* The lock goes away with the process; give the system a moment to release it. */
+        for (int i = 0; i < 20 && IsRunning(name); i++)
+                wxMilliSleep(50);
+        RefreshMachines(true);
 }
 
 void ManagerFrame::OnCopy(wxCommandEvent &event) {
@@ -548,6 +656,7 @@ void ManagerFrame::OnContextMenu(wxContextMenuEvent &event) {
         int sel = SelectedIndex();
         if (sel >= 0) {
                 menu.Append(ID_MGR_START, "S&tart");
+                menu.Append(ID_MGR_STOP, "&Force stop...");
                 menu.Append(ID_MGR_SETTINGS, "&Settings...");
                 menu.AppendSeparator();
                 menu.Append(ID_MGR_COPY, "&Clone...");
@@ -555,6 +664,7 @@ void ManagerFrame::OnContextMenu(wxContextMenuEvent &event) {
                 menu.Append(ID_MGR_DELETE, "&Delete");
                 bool busy = machines[sel].running || machines[sel].starting;
                 menu.Enable(ID_MGR_START, !busy);
+                menu.Enable(ID_MGR_STOP, busy);
                 menu.Enable(ID_MGR_SETTINGS, !busy);
                 menu.Enable(ID_MGR_RENAME, !busy);
                 menu.Enable(ID_MGR_DELETE, !busy);

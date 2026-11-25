@@ -12,6 +12,7 @@
 #include "logging-internal.h"
 
 #include <wx/snglinst.h>
+#include <wx/file.h>
 
 extern "C" {
 #include "sdl2-emu.h"
@@ -24,6 +25,7 @@ extern int config_override;
 /* Held for the life of a machine process, so the manager (and other PCem processes) can tell
    this machine is running. */
 static wxSingleInstanceChecker *machine_lock = NULL;
+static wxString machine_pid_file;
 
 extern void InitXmlResource();
 
@@ -41,6 +43,8 @@ wxBEGIN_EVENT_TABLE(Frame, wxFrame) wxEND_EVENT_TABLE()
 App::App() { this->frame = NULL; }
 
 int App::OnExit() {
+        if (!machine_pid_file.empty())
+                wxRemoveFile(machine_pid_file);
         delete machine_lock;
         machine_lock = NULL;
         return wxApp::OnExit();
@@ -93,12 +97,22 @@ void wx_set_app_icon(wxTopLevelWindow *win) {
 
 /* Takes the running-machine lock for config_file_default. The manager probes the lock every
    second, which briefly holds it, so retry before deciding another process has the machine. */
+/* Records this process id, so the manager can force the machine to stop if it hangs. */
+static void write_pid_file() {
+        machine_pid_file = wx_machine_pid_file(wxString(config_file_default));
+        wxFile f;
+        if (f.Create(machine_pid_file, true))
+                f.Write(wxString::Format("%lu\n", wxGetProcessId()));
+}
+
 static bool lock_machine() {
         wxString name = wx_machine_instance_name(wxString(config_file_default));
         for (int tries = 0; tries < 10; tries++) {
                 machine_lock = new wxSingleInstanceChecker();
-                if (!machine_lock->Create(name) || !machine_lock->IsAnotherRunning())
+                if (!machine_lock->Create(name) || !machine_lock->IsAnotherRunning()) {
+                        write_pid_file();
                         return true;
+                }
                 delete machine_lock;
                 machine_lock = NULL;
                 wxMilliSleep(50);

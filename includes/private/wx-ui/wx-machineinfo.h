@@ -32,5 +32,7 @@ wxString wx_floppy_type_name(int type);
 
 /* Name of the lock a running machine holds, so other PCem processes can tell it is running. */
 wxString wx_machine_instance_name(const wxString &config_path);
+/* File in which a running machine records its process id, so the manager can force it to stop. */
+wxString wx_machine_pid_file(const wxString &config_path);
 
 #endif /* _WX_MACHINEINFO_H_ */

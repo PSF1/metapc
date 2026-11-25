@@ -36,6 +36,7 @@ class ManagerFrame : public wxFrame {
         wxTimer timer;
         std::vector<Machine> machines;
         std::map<wxString, wxLongLong> launch_times;
+        std::map<wxString, long> launch_pids;
         wxString details_shown;
         bool details_running;
 
@@ -55,6 +56,8 @@ class ManagerFrame : public wxFrame {
         void OnNew(wxCommandEvent &event);
         void OnSettings(wxCommandEvent &event);
         void OnStart(wxCommandEvent &event);
+        void OnStop(wxCommandEvent &event);
+        long MachinePid(const wxString &name);
         void OnCopy(wxCommandEvent &event);
         void OnRename(wxCommandEvent &event);
         void OnDelete(wxCommandEvent &event);
