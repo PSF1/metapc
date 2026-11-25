@@ -274,7 +274,20 @@ static int wx_setupmenu(void *data) {
         return 1;
 }
 
-static void wx_host_message(const char *title, const char *message) { wx_messagebox(NULL, message, title, wxOK); }
+/* Messages come from the emulator core, sometimes from the renderer or emulation thread. A
+   message box opened from a thread other than the UI thread can hang without ever appearing, so
+   those are handed to the UI thread and shown from there. */
+static void wx_host_message(const char *title, const char *message) {
+        pclog("Message: %s: %s\n", title, message);
+        if (wxIsMainThread()) {
+                wx_messagebox(NULL, message, title, wxOK);
+                return;
+        }
+        if (ghwnd) {
+                wxString t(title), m(message);
+                ghwnd->CallAfter([t, m]() { wx_messagebox(NULL, m, t, wxOK); });
+        }
+}
 
 static void wx_host_ui_call(SDL_HOST_CALLBACK callback, void *data) { ghwnd->QueueCallback(callback, data); }
 

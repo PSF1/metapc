@@ -1024,8 +1024,10 @@ void display_start(void *wnd_ptr) {
                                                            0);
 #endif
 
+        pclog("Display: starting (%s)\n", is_embedded() ? "in the machine window" : "own window");
         if (is_embedded()) {
                 if (!display_frame) {
+                        pclog("Display: creating the machine window\n");
                         display_frame = host->panel_create(wnd_ptr, "metaPC " PCEM_VERSION_STRING, sdl_display_event);
                         if (display_frame) {
                                 if (host->panel_set_title)
@@ -1040,6 +1042,7 @@ void display_start(void *wnd_ptr) {
                 }
                 if (vid_resize == 2)
                         panel_set_size(custom_resolution_width, custom_resolution_height, 0);
+                pclog("Display: showing the machine window (%p)\n", display_frame);
                 if (display_frame && host->panel_show)
                         host->panel_show(display_frame, 1);
                 native_canvas = (display_frame && host->panel_native) ? host->panel_native(display_frame) : NULL;
@@ -1075,7 +1078,9 @@ void display_start(void *wnd_ptr) {
         atexit(releasemouse);
         rendererMutex = SDL_CreateMutex();
         rendererCond = SDL_CreateCond();
+        pclog("Display: starting the renderer (canvas %p, %dx%d)\n", native_canvas, canvas_width, canvas_height);
         renderer_start();
+        pclog("Display: started\n");
 }
 
 void display_stop() {
@@ -1283,8 +1288,11 @@ int window_create() {
         int opengl = requested_render_driver.sdl_window_params & SDL_WINDOW_OPENGL;
 
 #ifdef _WIN32
-        if (msg_hwnd && native_canvas)
+        if (msg_hwnd && native_canvas) {
+                pclog("Renderer: asking the UI thread for a canvas\n");
                 native = (void *)SendMessage(msg_hwnd, WM_PCEM_CREATE_CANVAS, 0, 0);
+                pclog("Renderer: canvas %p\n", native);
+        }
         if (native && opengl) {
                 dummy_window = SDL_CreateWindow("GL3 test", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1, 1,
                                                 SDL_WINDOW_HIDDEN | SDL_WINDOW_OPENGL);
@@ -1322,9 +1330,11 @@ int window_create() {
         }
 #endif
         if (!window) {
+                pclog("Renderer: the SDL window could not be created: %s\n", SDL_GetError());
                 sdl_host_message("SDL Error", "SDL window could not be created! Error: %s\n", SDL_GetError());
                 return 0;
         }
+        pclog("Renderer: display surface created\n");
 
 #ifdef PCEM_DISPLAY_X11
         if (native) {
@@ -1591,11 +1601,13 @@ int renderer_thread(void *params) {
         SDL_CondSignal(rendererCond);
         SDL_UnlockMutex(rendererMutex);
 
+        pclog("Renderer: thread running\n");
         window_setup();
 
         rendering = 1;
         while (rendering) {
 
+                pclog("Renderer: creating the display surface (driver %s)\n", requested_render_driver.name);
                 if (!window_create())
                         rendering = 0;
 

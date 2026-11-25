@@ -314,14 +314,18 @@ int pc_main(int argc, char **argv) {
         add_config_callback(sdl_loadconfig, sdl_saveconfig, sdl_onconfigloaded);
 
         initpc(argc, argv);
+        pclog("Startup: resetting the machine\n");
         resetpchard();
 
+        pclog("Startup: initialising sound\n");
         sound_init();
 
+        pclog("Startup: initialising the display\n");
         if (!sdl_host_get()->defer_display_init)
                 display_init();
         sdl_video_init();
         joystick_init();
+        pclog("Startup: core initialised\n");
 
         return TRUE;
 }
@@ -379,7 +383,9 @@ int start_emulation(void *params) {
         mainMutex = SDL_CreateMutex();
         mainCond = SDL_CreateCond();
 
+        pclog("Start: loading the BIOS (romset %d)\n", romset);
         if (!loadbios()) {
+                pclog("Start: the BIOS for romset %d is not available\n", romset);
                 if (romset != -1)
                         sdl_host_message("metaPC error", "Configured romset not available.\nDefaulting to available romset.");
                 for (c = 0; c < ROM_MAX; c++) {
@@ -392,6 +398,7 @@ int start_emulation(void *params) {
         }
 
         if (!video_card_available(video_old_to_new(gfxcard))) {
+                pclog("Start: the BIOS for video card %d is not available\n", gfxcard);
                 if (romset != -1)
                         sdl_host_message("metaPC error", "Configured video BIOS not available.\nDefaulting to available romset.");
                 for (c = GFX_MAX - 1; c >= 0; c--) {
@@ -403,10 +410,14 @@ int start_emulation(void *params) {
         }
 
         loadbios();
+        pclog("Start: resetting the machine (romset %d, video card %d)\n", romset, gfxcard);
         resetpchard();
+        pclog("Start: initialising MIDI\n");
         midi_init();
 
+        pclog("Start: opening the display\n");
         display_start(params);
+        pclog("Start: starting the emulation thread\n");
         mainthreadh = SDL_CreateThread(mainthread, "Main Thread", NULL);
 
         onesectimer = SDL_AddTimer(1000, timer_onesec, NULL);
@@ -417,6 +428,7 @@ int start_emulation(void *params) {
 
         if (sdl_host_get()->emulation_started)
                 sdl_host_get()->emulation_started();
+        pclog("Start: emulation started\n");
 
         return TRUE;
 }

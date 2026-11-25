@@ -61,6 +61,7 @@
 #include "hdd.h"
 #include "x86.h"
 #include "paths.h"
+#include "logging-internal.h"
 #include "plugin.h"
 #include "viewer.h"
 #include "sound_drives.h"
@@ -251,7 +252,13 @@ void initpc(int argc, char *argv[]) {
         //        append_filename(config_file_default, pcempath, "pcem.cfg", 511);
 
         loadconfig(NULL);
-        pclog("Config loaded\n");
+        /* The paths are known now: start the log, one file per machine (or the manager). */
+        pclog_open(config_override ? config_name : "manager");
+        pclog("metaPC " PCEM_VERSION_STRING "\n");
+        if (config_override)
+                pclog("Machine configuration: %s\n", config_file_default);
+        pclog("Config loaded: model=%s romset=%d cpu=%d gfxcard=%d mem=%d KB hdd_controller=%s\n", model_getname(), romset, cpu,
+              gfxcard, mem_size, hdd_controller_name);
 
         load_plugins();
 

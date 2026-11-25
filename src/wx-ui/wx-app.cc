@@ -107,23 +107,28 @@ static bool lock_machine() {
 }
 
 void Frame::Start() {
+        pclog("UI: starting\n");
         if (!wx_start(this)) {
+                pclog("UI: start failed\n");
                 Quit(0);
                 return;
         }
         if (!config_override) {
+                pclog("UI: opening the machine manager\n");
                 /* No machine given: this process is the machine manager. Each machine it
                    starts runs in its own process (pcem --config <file>). */
                 (new ManagerFrame(this))->Show();
                 return;
         }
         if (!lock_machine()) {
+                pclog("UI: the machine is already running in another process\n");
                 wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "metaPC",
                               wxOK | wxICON_INFORMATION);
                 Quit(1);
                 return;
         }
         has_been_inited = 1;
+        pclog("UI: starting the emulation\n");
         start_emulation(this);
 }
 

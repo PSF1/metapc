@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "sdl2-emu.h"
+#include "ibm.h"
 #include "video.h"
 #include "sdl2-video.h"
 
@@ -225,8 +226,11 @@ int sdl_renderer_init(SDL_Window *window) {
         else
                 screen_copy = NULL;
 
+        pclog("Renderer: initialising the %s renderer\n", requested_render_driver.name);
         renderer = requested_render_driver.renderer_create();
-        return renderer->init(window, requested_render_driver, screen_rect);
+        int ret = renderer->init(window, requested_render_driver, screen_rect);
+        pclog("Renderer: %s renderer %s\n", requested_render_driver.name, ret ? "ready" : "failed to initialise");
+        return ret;
 }
 
 void sdl_renderer_close() {
