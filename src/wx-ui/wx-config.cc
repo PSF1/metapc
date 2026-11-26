@@ -11,6 +11,8 @@
 #include <wx/spinctrl.h>
 
 #include <wx/progdlg.h>
+#include <wx/choicdlg.h>
+#include <wx/utils.h>
 
 #include <atomic>
 #include <functional>
@@ -28,6 +30,7 @@ extern "C" {
 #include "fdd.h"
 #include "gameport.h"
 #include "hdd.h"
+#include "hdd_hostdisk.h"
 #include "lpt.h"
 #include "model.h"
 #include "mouse.h"
@@ -172,6 +175,7 @@ void ConfigDialog::FindControls() {
                 d.panel = Ctrl<wxWindow>("IDC_HDPANEL", i);
                 d.type = Ctrl<wxComboBox>("IDC_COMBODRIVETYPE", i);
                 d.new_button = Ctrl<wxWindow>("IDC_NEW", i);
+                d.hostdisk_button = Ctrl<wxWindow>("IDC_HOSTDISK", i);
                 d.file_button = Ctrl<wxWindow>("IDC_FILE", i);
                 d.eject_button = Ctrl<wxWindow>("IDC_EJECT", i);
                 d.fn = Ctrl<wxTextCtrl>("IDC_EDIT_FN", i);
@@ -744,6 +748,7 @@ void ConfigDialog::BindEvents() {
                 drives[i].eject_button->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent &) { HdEject(i); });
                 drives[i].new_button->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent &) { HdNew(i); });
                 drives[i].file_button->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent &) { HdFile(i); });
+                drives[i].hostdisk_button->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent &) { HdHostDisk(i); });
                 drives[i].type->Bind(wxEVT_COMBOBOX, [this, i](wxCommandEvent &) { HdDriveType(i); });
         }
 }
@@ -876,6 +881,7 @@ void ConfigDialog::UpdateHddCdrom() {
                 d.file_button->Enable(!removable);
                 d.eject_button->Enable(!removable);
                 d.new_button->Enable(!removable);
+                d.hostdisk_button->Enable(!removable);
                 d.spt->Enable(!removable);
                 d.hpc->Enable(!removable);
                 d.cyl->Enable(!removable);
@@ -1003,6 +1009,65 @@ void ConfigDialog::HdFile(int drive) {
                 SetDriveGeometry(drive, g, file);
                 hd_changed = true;
         }
+}
+
+/* Uses a removable disk of this computer, such as a CompactFlash card in a USB
+   reader, as the hard disk. The geometry is the one the card reports, so the
+   same values work in the BIOS of a real machine. */
+void ConfigDialog::HdHostDisk(int drive) {
+        if (SelectedHddIsMfm()) {
+                wx_messagebox(this,
+                              "A CompactFlash card needs an IDE or SCSI hard disk controller.\n\n"
+                              "Choose one under \"HDD\" first.",
+                              "MetaPC", wxOK);
+                return;
+        }
+
+        std::vector<hostdisk_info_t> list(HOSTDISK_MAX);
+        int n;
+        {
+                wxBusyCursor busy;
+                n = hostdisk_enumerate(list.data(), HOSTDISK_MAX);
+        }
+
+        std::vector<int> usable;
+        wxArrayString choices;
+        for (int i = 0; i < n; i++) {
+                const hostdisk_info_t &d = list[i];
+                if (!d.usable)
+                        continue;
+                usable.push_back(i);
+                choices.Add(wxString::Format("%s  -  %llu MB  -  C %d  H %d  S %d   (%s)", wxString::FromUTF8(d.model),
+                                             (unsigned long long)(d.sectors / 2048), d.cyl, d.hpc, d.spt,
+                                             wxString::FromUTF8(d.path)));
+        }
+
+        if (usable.empty()) {
+                wxString msg = "No CompactFlash card or other removable disk was found.\n\nInsert the card in the reader and try again.";
+#ifdef _WIN32
+                if (n == 0)
+                        msg = "MetaPC cannot see the disks of this computer.\n\n"
+                              "To use a CompactFlash card directly, run MetaPC as administrator.";
+#endif
+                wx_messagebox(this, msg, "MetaPC", wxOK);
+                return;
+        }
+
+        wxSingleChoiceDialog dlg(this,
+                                 wxString::Format("Choose the card to use as hard disk %c:.\n\n"
+                                                  "The emulated machine reads and writes the card directly: "
+                                                  "whatever it holds may be overwritten.",
+                                                  'C' + drive),
+                                 "Use a CompactFlash card", choices);
+        if (dlg.ShowModal() != wxID_OK)
+                return;
+
+        const hostdisk_info_t &d = list[usable[dlg.GetSelection()]];
+        HdGeometryDialog::HdGeometry g = {d.spt, d.hpc, d.cyl, 0};
+        if (!HdGeometryDialog::ValidateGeometry(this, g))
+                return;
+        SetDriveGeometry(drive, g, wxString::FromUTF8(d.path));
+        hd_changed = true;
 }
 
 void ConfigDialog::HdDriveType(int drive) {

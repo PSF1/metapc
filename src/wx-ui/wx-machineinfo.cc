@@ -8,6 +8,7 @@ extern "C" {
 #include "fdd.h"
 #include "gameport.h"
 #include "hdd.h"
+#include "hdd_hostdisk.h"
 #include "ide.h"
 #include "lpt.h"
 #include "model.h"
@@ -142,6 +143,8 @@ std::vector<MachineInfoSection> wx_machine_info() {
                         storage.items.push_back({channel_name(i), "ZIP drive"});
                 } else if (ide_fn[i][0]) {
                         wxString value = wxFileName(ide_fn[i]).GetFullName();
+                        if (hostdisk_is_device_path(ide_fn[i]))
+                                value = wxString::Format("Card in %s", value);
                         wxString size = disk_size(i);
                         if (!size.empty())
                                 value += " (" + size + ")";

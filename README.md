@@ -59,6 +59,17 @@ recorded samples:
 - The selected drive is found again at start even if its drive letter changed.
 - A new **PCemDVD (DVD-ROM)** drive model, and support for DVD images larger than 4 GB.
 
+### CompactFlash Cards as Hard Disks
+- A card in a USB reader (or another removable disk of the host) can be used as a hard disk in place
+  of an image file: the card button next to **New** in the hard disk settings lists the cards found.
+  The emulated machine reads and writes the card directly, so it can be partitioned, formatted and
+  set up in the emulator and then moved to a real machine.
+- The card gets the geometry it reports to a BIOS set to auto-detect (16 heads and 63 sectors on cards
+  over 504 MB). The **Hard disks** panel of the machine window shows it (for example `C 4066 H 16 S 63`)
+  with a **Copy** button, to enter the same values in the BIOS of the real machine.
+- On Windows, MetaPC must run as administrator to open the card. The disk that holds the operating
+  system and fixed internal disks are never offered.
+
 ### Other Changes
 - **Random MAC address**: a dice button next to the MAC address field generates a new address.
 - **Logs in every build**: each process writes a log in the `logs` folder of the data directory

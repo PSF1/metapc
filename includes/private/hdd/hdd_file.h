@@ -4,6 +4,7 @@ typedef enum hdd_img_type {
         HDD_IMG_RAW,
         HDD_IMG_VHD,
         HDD_IMG_RAW_RAM,
+        HDD_IMG_HOSTDISK, /*physical disk of the host, see hdd_hostdisk.h*/
 } hdd_img_type;
 
 typedef struct hdd_file_t {

@@ -9,6 +9,9 @@
 #include "ramdisk/ramdisk.h"
 #include "minivhd/minivhd.h"
 #include "minivhd/minivhd_util.h"
+#include "hdd_hostdisk.h"
+/* Shows a message box (sdl2-host.c). */
+void sdl_host_message(const char *title, const char *format, ...);
 
 #if defined(__APPLE__) && defined(__MACH__)
         #define fseeko64 fseeko
@@ -33,6 +36,34 @@ void hdd_load_ext(hdd_file_t *hdd, const char *fn, int spt, int hpc, int tracks,
         bool is_ramdisk = is_ramdisk_file(fn);
 
         hdd->sound_id = -1;
+
+        if (hostdisk_is_device_path(fn)) {
+                /* A physical disk of the host, such as a CompactFlash card. */
+                char err[256] = "";
+                uint64_t want = (uint64_t)spt * hpc * tracks;
+                hostdisk_t *d = hostdisk_open(fn, read_only, err, sizeof(err));
+                if (d && want > hostdisk_sectors(d)) {
+                        snprintf(err, sizeof(err), "The geometry set for it (%i cylinders, %i heads, %i sectors) is larger than the disk",
+                                 tracks, hpc, spt);
+                        hostdisk_close(d);
+                        d = NULL;
+                }
+                if (!d) {
+                        pclog("Cannot open host disk '%s': %s\n", fn, err);
+                        sdl_host_message("MetaPC error", "Cannot use the disk %s as a hard disk:\n%s", fn, err);
+                        hdd->f = NULL;
+                        return;
+                }
+                hdd->f = (void *)d;
+                hdd->img_type = HDD_IMG_HOSTDISK;
+                hdd->spt = spt;
+                hdd->hpc = hpc;
+                hdd->tracks = tracks;
+                hdd->sectors = spt * hpc * tracks;
+                hdd->read_only = read_only;
+                return;
+        }
+
         if (is_ramdisk)
                 read_only = 1;
 
@@ -177,6 +208,8 @@ void hdd_close(hdd_file_t *hdd) {
                         fclose((FILE *)hdd->f);
                 else if (hdd->img_type == HDD_IMG_RAW_RAM)
                         ramdisk_free((ramdisk_t *)hdd->f);
+                else if (hdd->img_type == HDD_IMG_HOSTDISK)
+                        hostdisk_close((hostdisk_t *)hdd->f);
         }
         hdd->img_type = HDD_IMG_RAW;
         hdd->f = NULL;
@@ -184,6 +217,14 @@ void hdd_close(hdd_file_t *hdd) {
 
 int hdd_read_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) {
         hdd_sound_access(hdd, offset);
+        if (hdd->img_type == HDD_IMG_HOSTDISK) {
+                int transfer_sectors = nr_sectors;
+                if ((hdd->sectors - offset) < transfer_sectors)
+                        transfer_sectors = hdd->sectors - offset;
+                if (transfer_sectors > 0 && hostdisk_read((hostdisk_t *)hdd->f, offset, transfer_sectors, buffer))
+                        return 1;
+                return nr_sectors != transfer_sectors;
+        }
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_read_sectors((MVHDMeta *)hdd->f, offset, nr_sectors, buffer);
         } else if (hdd->img_type == HDD_IMG_RAW ||
@@ -215,6 +256,16 @@ int hdd_read_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) 
 
 int hdd_write_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer) {
         hdd_sound_access(hdd, offset);
+        if (hdd->img_type == HDD_IMG_HOSTDISK) {
+                int transfer_sectors = nr_sectors;
+                if (hdd->read_only)
+                        return 1;
+                if ((hdd->sectors - offset) < transfer_sectors)
+                        transfer_sectors = hdd->sectors - offset;
+                if (transfer_sectors > 0 && hostdisk_write((hostdisk_t *)hdd->f, offset, transfer_sectors, buffer))
+                        return 1;
+                return nr_sectors != transfer_sectors;
+        }
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_write_sectors((MVHDMeta *)hdd->f, offset, nr_sectors, buffer);
         } else if (hdd->img_type == HDD_IMG_RAW ||
@@ -249,6 +300,19 @@ int hdd_write_sectors(hdd_file_t *hdd, int offset, int nr_sectors, void *buffer)
 
 int hdd_format_sectors(hdd_file_t *hdd, int offset, int nr_sectors) {
         hdd_sound_access(hdd, offset);
+        if (hdd->img_type == HDD_IMG_HOSTDISK) {
+                uint8_t zero_buffer[512];
+                memset(zero_buffer, 0, 512);
+                if (hdd->read_only)
+                        return 1;
+                for (int c = 0; c < nr_sectors; c++) {
+                        if (offset + c >= hdd->sectors)
+                                return 1;
+                        if (hostdisk_write((hostdisk_t *)hdd->f, offset + c, 1, zero_buffer))
+                                return 1;
+                }
+                return 0;
+        }
         if (hdd->img_type == HDD_IMG_VHD) {
                 return mvhd_format_sectors((MVHDMeta *)hdd->f, offset, nr_sectors);
         } else if (hdd->img_type == HDD_IMG_RAW ||

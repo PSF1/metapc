@@ -28,6 +28,7 @@ class ConfigDialog : public wxDialog {
                 wxWindow *panel;
                 wxComboBox *type;
                 wxWindow *new_button;
+                wxWindow *hostdisk_button;
                 wxWindow *file_button;
                 wxWindow *eject_button;
                 wxTextCtrl *fn;
@@ -131,6 +132,7 @@ class ConfigDialog : public wxDialog {
         void HdNew(int drive);
         void CheckHdType(off_t sz, HdGeometryDialog::HdGeometry &g);
         void HdFile(int drive);
+        void HdHostDisk(int drive);
         void HdDriveType(int drive);
         void Save();
         void OnOk(wxCommandEvent &event);

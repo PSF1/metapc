@@ -4,6 +4,7 @@
 #include "wx-machineinfo.h"
 #include "wx-utils.h"
 
+#include <wx/clipbrd.h>
 #include <wx/dnd.h>
 #include <wx/filename.h>
 #include <wx/statline.h>
@@ -17,6 +18,7 @@ extern "C" {
 #include "config.h"
 #include "fdd.h"
 #include "hdd.h"
+#include "hdd_hostdisk.h"
 #include "ide.h"
 #include "scsi_zip.h"
 #include "sdl2-emu.h"
@@ -649,23 +651,50 @@ class StoragePanel : public MachinePanel {
                 wxFlexGridSizer *grid = new wxFlexGridSizer(3, FromDIP(4), FromDIP(6));
                 grid->AddGrowableCol(1);
                 wxBitmap bmp = panel_bitmap("BITMAP_HARDDISK");
+                wxBitmap cf_bmp = panel_bitmap("BITMAP_COMPACTFLASH");
                 int num = hdd_controller_current_is_mfm() ? 2 : (hdd_controller_current_is_scsi() ? 7 : 4);
                 for (int i = 0; i < num; i++) {
                         if (!ide_fn[i][0] || (!hdd_controller_current_is_mfm() && (i == cdrom_channel || i == zip_channel)))
                                 continue;
+                        bool host_disk = hostdisk_is_device_path(ide_fn[i]) != 0;
+                        const wxBitmap &icon = (host_disk && cf_bmp.IsOk()) ? cf_bmp : bmp;
                         wxBoxSizer *name = new wxBoxSizer(wxHORIZONTAL);
-                        if (bmp.IsOk())
-                                name->Add(new wxStaticBitmap(this, wxID_ANY, bmp), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+                        if (icon.IsOk())
+                                name->Add(new wxStaticBitmap(this, wxID_ANY, icon), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
                         wxStaticText *letter = new wxStaticText(this, wxID_ANY, wxString::Format("%c:", 'C' + i));
                         letter->SetFont(GetFont().Bold());
                         name->Add(letter, 0, wxALIGN_CENTER_VERTICAL);
                         grid->Add(name, 0, wxALIGN_CENTER_VERTICAL);
-                        wxStaticText *file = value_text(this, wxFileName(ide_fn[i]).GetFullName(), wxST_ELLIPSIZE_MIDDLE);
+                        wxString file_name = wxFileName(ide_fn[i]).GetFullName();
+                        if (host_disk) {
+                                hostdisk_info_t info;
+                                file_name = hostdisk_query(ide_fn[i], &info) ? wxString("Card not present")
+                                                                             : wxString::FromUTF8(info.model);
+                        }
+                        wxStaticText *file = value_text(this, file_name, wxST_ELLIPSIZE_MIDDLE);
                         file->SetToolTip(ide_fn[i]);
                         grid->Add(file, 1, wxEXPAND | wxALIGN_CENTER_VERTICAL);
                         ActivityLed *led = new ActivityLed(this);
                         grid->Add(led, 0, wxALIGN_CENTER_VERTICAL);
                         leds.push_back(std::make_pair(i, led));
+
+                        if (host_disk) {
+                                /* The geometry to enter in the BIOS of the real machine the card
+                                   will go into: the same one the emulated machine uses. */
+                                wxString chs = wxString::Format("C %d H %d S %d", hdc[i].tracks, hdc[i].hpc, hdc[i].spt);
+                                grid->AddSpacer(0);
+                                wxStaticText *geometry = value_text(this, chs);
+                                geometry->SetToolTip("Geometry to enter in the BIOS of the real machine (cylinders, heads, sectors)");
+                                grid->Add(geometry, 1, wxEXPAND | wxALIGN_CENTER_VERTICAL);
+                                grid->Add(MakeButton("Copy", NULL, "Copy the geometry to the clipboard",
+                                                     [chs]() {
+                                                             if (wxTheClipboard->Open()) {
+                                                                     wxTheClipboard->SetData(new wxTextDataObject(chs));
+                                                                     wxTheClipboard->Close();
+                                                             }
+                                                     }),
+                                          0, wxALIGN_CENTER_VERTICAL);
+                        }
                 }
                 wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
                 sizer->Add(grid, 1, wxEXPAND | wxALL, FromDIP(6));
