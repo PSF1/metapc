@@ -67,8 +67,10 @@ recorded samples:
 - The card gets the geometry it reports to a BIOS set to auto-detect (16 heads and 63 sectors on cards
   over 504 MB). The **Hard disks** panel of the machine window shows it (for example `C 4066 H 16 S 63`)
   with a **Copy** button, to enter the same values in the BIOS of the real machine.
-- On Windows, MetaPC must run as administrator to open the card. The disk that holds the operating
-  system and fixed internal disks are never offered.
+- On Windows, writing to a card needs administrator rights. MetaPC does not need to run as
+  administrator: a machine that uses a card asks for permission (the Windows UAC prompt) when it
+  starts, and only that machine's process gets it. The disk that holds the operating system and
+  fixed internal disks are never offered.
 
 ### Other Changes
 - **Random MAC address**: a dice button next to the MAC address field generates a new address.

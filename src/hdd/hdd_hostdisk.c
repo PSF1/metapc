@@ -177,16 +177,23 @@ static int identify_sat(HANDLE h, uint16_t *id) {
         return 0;
 }
 
-static int query_handle(HANDLE h, int number, uint32_t sys_mask, hostdisk_info_t *info) {
-        GET_LENGTH_INFORMATION li;
+/* h may have been opened without read or write access (no administrator
+   rights): every query here works with that, except IDENTIFY, which then
+   is skipped. */
+static int query_handle(HANDLE h, int can_identify, int number, uint32_t sys_mask, hostdisk_info_t *info) {
         DWORD ret;
+        union {
+                DISK_GEOMETRY_EX g;
+                char buf[256];
+        } geom;
 
         memset(info, 0, sizeof(*info));
         snprintf(info->path, sizeof(info->path), "\\\\.\\PhysicalDrive%d", number);
 
-        if (!DeviceIoControl(h, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &li, sizeof(li), &ret, NULL) || li.Length.QuadPart < 512)
+        if (!DeviceIoControl(h, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, NULL, 0, &geom, sizeof(geom), &ret, NULL) ||
+            geom.g.DiskSize.QuadPart < 512)
                 return -1; /* no media */
-        info->sectors = (uint64_t)li.Length.QuadPart / 512;
+        info->sectors = (uint64_t)geom.g.DiskSize.QuadPart / 512;
 
         STORAGE_PROPERTY_QUERY q;
         union {
@@ -218,7 +225,7 @@ static int query_handle(HANDLE h, int number, uint32_t sys_mask, hostdisk_info_t
         info->usable = info->removable && !info->system;
 
         hostdisk_default_geometry(info->sectors, &info->cyl, &info->hpc, &info->spt);
-        if (info->usable) {
+        if (info->usable && can_identify) {
                 uint16_t id[256];
                 if (!identify_sat(h, id))
                         apply_identify(info, id);
@@ -232,16 +239,25 @@ static HANDLE open_disk(int number, DWORD access) {
         return CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 }
 
+/* Opens a disk for queries: with read/write access when allowed (needed for
+   IDENTIFY), otherwise with none, which any user may do. */
+static HANDLE open_disk_query(int number, int *can_identify) {
+        HANDLE h = open_disk(number, GENERIC_READ | GENERIC_WRITE);
+        *can_identify = h != INVALID_HANDLE_VALUE;
+        if (h == INVALID_HANDLE_VALUE)
+                h = open_disk(number, 0);
+        return h;
+}
+
 int hostdisk_query(const char *path, hostdisk_info_t *info) {
         int number = hostdisk_is_device_path(path) ? disk_number(path) : -1;
+        int can_identify;
         if (number < 0)
                 return -1;
-        HANDLE h = open_disk(number, GENERIC_READ | GENERIC_WRITE);
-        if (h == INVALID_HANDLE_VALUE)
-                h = open_disk(number, GENERIC_READ);
+        HANDLE h = open_disk_query(number, &can_identify);
         if (h == INVALID_HANDLE_VALUE)
                 return -1;
-        int r = query_handle(h, number, system_disks(), info);
+        int r = query_handle(h, can_identify, number, system_disks(), info);
         CloseHandle(h);
         return r;
 }
@@ -251,12 +267,11 @@ int hostdisk_enumerate(hostdisk_info_t *list, int max) {
         int n = 0;
 
         for (int i = 0; i < 32 && n < max; i++) {
-                HANDLE h = open_disk(i, GENERIC_READ | GENERIC_WRITE);
-                if (h == INVALID_HANDLE_VALUE)
-                        h = open_disk(i, GENERIC_READ);
+                int can_identify;
+                HANDLE h = open_disk_query(i, &can_identify);
                 if (h == INVALID_HANDLE_VALUE)
                         continue;
-                if (!query_handle(h, i, sys_mask, &list[n]))
+                if (!query_handle(h, can_identify, i, sys_mask, &list[n]))
                         n++;
                 CloseHandle(h);
         }
@@ -298,7 +313,7 @@ static int lock_volumes(hostdisk_t *d, int number, char *err, int err_size) {
                 DWORD ret;
                 if (!DeviceIoControl(vol, FSCTL_LOCK_VOLUME, NULL, 0, NULL, 0, &ret, NULL)) {
                         CloseHandle(vol);
-                        set_err(err, err_size, "A drive on this disk is in use by Windows (close any window or program using it)");
+                        set_err(err, err_size, "A drive on this disk is in use (close any window or program using it)");
                         ok = 0;
                         break;
                 }
@@ -327,7 +342,7 @@ hostdisk_t *hostdisk_open(const char *path, int read_only, char *err, int err_si
                 return NULL;
         }
         if (hostdisk_query(path, &info)) {
-                set_err(err, err_size, "The disk is not present, has no card inserted, or MetaPC is not running as administrator");
+                set_err(err, err_size, "The disk is not present or has no card inserted");
                 return NULL;
         }
         if (info.system) {
@@ -354,8 +369,9 @@ hostdisk_t *hostdisk_open(const char *path, int read_only, char *err, int err_si
         d->h = CreateFileA(dev, read_only ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE), FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
                            OPEN_EXISTING, FILE_FLAG_WRITE_THROUGH, NULL);
         if (d->h == INVALID_HANDLE_VALUE) {
-                set_err(err, err_size, GetLastError() == ERROR_ACCESS_DENIED ? "Access denied: run MetaPC as administrator"
-                                                                              : "Cannot open the disk");
+                set_err(err, err_size, GetLastError() == ERROR_ACCESS_DENIED
+                                               ? "Windows did not give MetaPC administrator permission, which it needs to use the card"
+                                               : "Cannot open the disk");
                 unlock_volumes(d);
                 free(d);
                 return NULL;

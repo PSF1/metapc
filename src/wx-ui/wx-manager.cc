@@ -22,6 +22,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 extern "C" {
@@ -254,11 +255,23 @@ void ManagerFrame::SelectName(const wxString &name) {
 }
 
 bool ManagerFrame::IsRunning(const wxString &name) {
+#ifdef _WIN32
+        /* The machine holds a mutex with this name while it runs. A machine running with
+           administrator rights (it uses a CompactFlash card) creates one this process may not
+           open: being refused access still means it exists. */
+        HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, wx_machine_instance_name(ConfigPath(name)).wc_str());
+        if (mutex) {
+                CloseHandle(mutex);
+                return true;
+        }
+        return GetLastError() == ERROR_ACCESS_DENIED;
+#else
         wxLogNull nolog;
         wxSingleInstanceChecker checker;
         if (!checker.Create(wx_machine_instance_name(ConfigPath(name))))
                 return false;
         return checker.IsAnotherRunning();
+#endif
 }
 
 /* Rescans the configs folder (machines may be added from outside) and each machine's state. */
@@ -516,6 +529,29 @@ static bool is_our_process(long pid) {
 #endif
 }
 
+#ifdef _WIN32
+/* A machine that runs with administrator rights (it uses a CompactFlash card) can only be
+   stopped with them too: asks for them and stops it with taskkill. */
+static bool kill_elevated(long pid) {
+        wxString params = wxString::Format("/F /PID %ld", pid);
+        SHELLEXECUTEINFOW sei;
+        memset(&sei, 0, sizeof(sei));
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+        sei.lpVerb = L"runas";
+        sei.lpFile = L"taskkill.exe";
+        sei.lpParameters = params.wc_str();
+        sei.nShow = SW_HIDE;
+        if (!ShellExecuteExW(&sei))
+                return false;
+        if (sei.hProcess) {
+                WaitForSingleObject(sei.hProcess, 10000);
+                CloseHandle(sei.hProcess);
+        }
+        return !is_our_process(pid);
+}
+#endif
+
 /* The process id of a running (or starting) machine: the one it recorded itself, or else the
    one this manager launched. 0 if none is known. */
 long ManagerFrame::MachinePid(const wxString &name) {
@@ -573,7 +609,12 @@ void ManagerFrame::OnStop(wxCommandEvent &event) {
                 return;
         }
         pclog("Force stopping machine %s (pid %ld)\n", (const char *)name.mb_str(), pid);
-        if (wxKill(pid, wxSIGKILL, NULL, wxKILL_CHILDREN) != wxKILL_OK && is_our_process(pid)) {
+        bool killed = wxKill(pid, wxSIGKILL, NULL, wxKILL_CHILDREN) == wxKILL_OK || !is_our_process(pid);
+#ifdef _WIN32
+        if (!killed)
+                killed = kill_elevated(pid);
+#endif
+        if (!killed) {
                 wx_messagebox(this, wxString::Format("Could not stop \"%s\".", name), "MetaPC", wxOK | wxICON_ERROR);
                 return;
         }

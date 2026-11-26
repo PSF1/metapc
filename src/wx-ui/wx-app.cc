@@ -13,9 +13,17 @@
 
 #include <wx/snglinst.h>
 #include <wx/file.h>
+#include <wx/stdpaths.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 extern "C" {
 #include "sdl2-emu.h"
+#include "ide.h"
+#include "hdd_hostdisk.h"
 #include "ibm.h"
 #include "config.h"
 }
@@ -120,6 +128,78 @@ static bool lock_machine() {
         return false;
 }
 
+#ifdef _WIN32
+/* Using a disk of the host directly (a CompactFlash card) needs administrator rights on Windows.
+   Rather than having the whole program run as administrator, a machine that uses one asks for
+   them when it starts: it starts itself again elevated, which shows the Windows permission
+   prompt. */
+static bool machine_uses_host_disk() {
+        for (int i = 0; i < 7; i++)
+                if (i != cdrom_channel && i != zip_channel && hostdisk_is_device_path(ide_fn[i]))
+                        return true;
+        return false;
+}
+
+static bool process_is_elevated() {
+        HANDLE token;
+        TOKEN_ELEVATION elevation;
+        DWORD size;
+        bool elevated = false;
+
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+                if (GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size))
+                        elevated = elevation.TokenIsElevated != 0;
+                CloseHandle(token);
+        }
+        return elevated;
+}
+
+/* Quotes one argument for the Windows command line (CommandLineToArgvW rules). */
+static wxString quote_arg(const wxString &arg) {
+        const wxUniChar backslash('\\');
+        if (!arg.empty() && arg.find_first_of(" \t\"") == wxString::npos)
+                return arg;
+        wxString out = "\"";
+        int backslashes = 0;
+        for (wxString::const_iterator it = arg.begin(); it != arg.end(); ++it) {
+                if (*it == backslash) {
+                        backslashes++;
+                        continue;
+                }
+                if (*it == '"')
+                        out += wxString(backslash, 2 * backslashes + 1) + "\"";
+                else
+                        out += wxString(backslash, backslashes) + *it;
+                backslashes = 0;
+        }
+        out += wxString(backslash, 2 * backslashes) + "\"";
+        return out;
+}
+
+/* Starts this machine again with administrator rights. False if the user declined. */
+static bool relaunch_elevated() {
+        wxString params;
+        for (int i = 1; i < wxTheApp->argc; i++)
+                params += (i > 1 ? " " : "") + quote_arg(wxTheApp->argv[i]);
+        wxString exe = wxStandardPaths::Get().GetExecutablePath();
+        wxString cwd = wxGetCwd();
+
+        SHELLEXECUTEINFOW sei;
+        memset(&sei, 0, sizeof(sei));
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOASYNC;
+        sei.lpVerb = L"runas";
+        sei.lpFile = exe.wc_str();
+        sei.lpParameters = params.wc_str();
+        sei.lpDirectory = cwd.wc_str();
+        sei.nShow = SW_SHOWNORMAL;
+        if (ShellExecuteExW(&sei))
+                return true;
+        pclog("UI: elevation failed or declined (error %lu)\n", GetLastError());
+        return false;
+}
+#endif
+
 void Frame::Start() {
         pclog("UI: starting\n");
         if (!wx_start(this)) {
@@ -134,6 +214,16 @@ void Frame::Start() {
                 (new ManagerFrame(this))->Show();
                 return;
         }
+#ifdef _WIN32
+        if (machine_uses_host_disk() && !process_is_elevated()) {
+                pclog("UI: the machine uses a disk of the host, asking for administrator rights\n");
+                if (relaunch_elevated()) {
+                        Quit(0);
+                        return;
+                }
+                /* Declined: start anyway; the hard disk reports that it cannot open the card. */
+        }
+#endif
         if (!lock_machine()) {
                 pclog("UI: the machine is already running in another process\n");
                 wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "MetaPC",

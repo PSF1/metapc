@@ -1043,20 +1043,19 @@ void ConfigDialog::HdHostDisk(int drive) {
         }
 
         if (usable.empty()) {
-                wxString msg = "No CompactFlash card or other removable disk was found.\n\nInsert the card in the reader and try again.";
-#ifdef _WIN32
-                if (n == 0)
-                        msg = "MetaPC cannot see the disks of this computer.\n\n"
-                              "To use a CompactFlash card directly, run MetaPC as administrator.";
-#endif
-                wx_messagebox(this, msg, "MetaPC", wxOK);
+                wx_messagebox(this, "No CompactFlash card or other removable disk was found.\n\nInsert the card in the reader and try again.",
+                              "MetaPC", wxOK);
                 return;
         }
 
         wxSingleChoiceDialog dlg(this,
                                  wxString::Format("Choose the card to use as hard disk %c:.\n\n"
                                                   "The emulated machine reads and writes the card directly: "
-                                                  "whatever it holds may be overwritten.",
+                                                  "whatever it holds may be overwritten."
+#ifdef _WIN32
+                                                  "\n\nWindows will ask for administrator permission when the machine starts."
+#endif
+                                                  ,
                                                   'C' + drive),
                                  "Use a CompactFlash card", choices);
         if (dlg.ShowModal() != wxID_OK)
