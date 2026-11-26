@@ -1081,22 +1081,32 @@
 												</object>
 											</object>
 											<object class="sizeritem">
-												<option>0</option>
-												<flag>wxALL</flag>
+												<option>1</option>
+												<flag>wxEXPAND</flag>
 												<border>5</border>
-												<object class="wxTextCtrl" name="IDC_EDIT_MACADDR">
-													<size>150,-1</size>
-													<value/>
-													<maxlength>17</maxlength>
-												</object>
-											</object>
-											<object class="sizeritem">
-												<option>0</option>
-												<flag>wxALL</flag>
-												<border>5</border>
-												<object class="wxButton" name="IDC_RANDOM_MACADDR">
-													<label>Random</label>
-													<tooltip>Generate a random MAC address</tooltip>
+												<object class="wxBoxSizer">
+													<orient>wxHORIZONTAL</orient>
+													<object class="sizeritem">
+														<option>0</option>
+														<flag>wxALL</flag>
+														<border>5</border>
+														<object class="wxTextCtrl" name="IDC_EDIT_MACADDR">
+															<size>150,-1</size>
+															<value/>
+															<maxlength>17</maxlength>
+														</object>
+													</object>
+													<object class="sizeritem">
+														<option>0</option>
+														<flag>wxALL</flag>
+														<border>5</border>
+														<object class="wxBitmapButton" name="IDC_RANDOM_MACADDR">
+															<style>wxBU_AUTODRAW</style>
+															<bitmap>icons/16x16/dice.png</bitmap>
+															<default>0</default>
+															<tooltip>Generate a random MAC address</tooltip>
+														</object>
+													</object>
 												</object>
 											</object>
 										</object>
