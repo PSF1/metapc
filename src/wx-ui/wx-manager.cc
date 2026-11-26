@@ -118,7 +118,7 @@ class MachineListBox : public wxVListBox {
 /* ---------------------------------------------------------------- manager frame */
 
 ManagerFrame::ManagerFrame(Frame *app_frame)
-        : wxFrame(NULL, wxID_ANY, "metaPC Machine Manager", wxDefaultPosition, wxDefaultSize), app_frame(app_frame),
+        : wxFrame(NULL, wxID_ANY, "MetaPC Machine Manager", wxDefaultPosition, wxDefaultSize), app_frame(app_frame),
           timer(this), details_running(false) {
         wx_set_app_icon(this);
 
@@ -200,7 +200,7 @@ void ManagerFrame::BuildMenu() {
         menubar->Append(machine, "&Machine");
 
         wxMenu *help = new wxMenu();
-        help->Append(wxID_ABOUT, "&About metaPC...");
+        help->Append(wxID_ABOUT, "&About MetaPC...");
         menubar->Append(help, "&Help");
 
         SetMenuBar(menubar);
@@ -481,7 +481,7 @@ void ManagerFrame::OnStart(wxCommandEvent &event) {
         const wchar_t *argv[] = {exe_w.data(), L"--config", cfg_w.data(), NULL};
         long pid = wxExecute(argv, wxEXEC_ASYNC);
         if (pid <= 0) {
-                wx_messagebox(this, wxString::Format("Could not start \"%s\".", m.name), "metaPC", wxOK | wxICON_ERROR);
+                wx_messagebox(this, wxString::Format("Could not start \"%s\".", m.name), "MetaPC", wxOK | wxICON_ERROR);
                 return;
         }
         pclog("Launched machine %s (pid %ld)\n", (const char *)m.name.mb_str(), pid);
@@ -549,7 +549,7 @@ void ManagerFrame::OnStop(wxCommandEvent &event) {
                               wxString::Format("Could not find the process of \"%s\". If it is still running, close it "
                                                "from its own window or from the Task Manager.",
                                                name),
-                              "metaPC", wxOK | wxICON_ERROR);
+                              "MetaPC", wxOK | wxICON_ERROR);
                 return;
         }
 
@@ -574,7 +574,7 @@ void ManagerFrame::OnStop(wxCommandEvent &event) {
         }
         pclog("Force stopping machine %s (pid %ld)\n", (const char *)name.mb_str(), pid);
         if (wxKill(pid, wxSIGKILL, NULL, wxKILL_CHILDREN) != wxKILL_OK && is_our_process(pid)) {
-                wx_messagebox(this, wxString::Format("Could not stop \"%s\".", name), "metaPC", wxOK | wxICON_ERROR);
+                wx_messagebox(this, wxString::Format("Could not stop \"%s\".", name), "MetaPC", wxOK | wxICON_ERROR);
                 return;
         }
         wxRemoveFile(wx_machine_pid_file(ConfigPath(name)));
@@ -616,7 +616,7 @@ void ManagerFrame::OnDelete(wxCommandEvent &event) {
         if (sel < 0 || machines[sel].running || machines[sel].starting)
                 return;
         wxString name = machines[sel].name;
-        if (wx_messagebox(this, wxString::Format("Do you want to delete \"%s\"?", name), "metaPC", wxOK | wxCANCEL) == wxOK) {
+        if (wx_messagebox(this, wxString::Format("Do you want to delete \"%s\"?", name), "MetaPC", wxOK | wxCANCEL) == wxOK) {
                 wxRemoveFile(ConfigPath(name));
                 RefreshMachines(true);
         }

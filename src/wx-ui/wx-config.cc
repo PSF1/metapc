@@ -559,7 +559,7 @@ bool ConfigDialog::ValidateMacaddr() {
         NormalizeMacaddr(edit_macaddr->GetValue(), &valid);
         if (!valid)
                 wx_messagebox(this, "Invalid MAC address. Use the form XX:XX:XX:XX:XX:XX, or leave it blank for the default.",
-                              "metaPC error", wxOK);
+                              "MetaPC error", wxOK);
         return valid;
 }
 
@@ -955,7 +955,7 @@ void ConfigDialog::HdFile(int drive) {
         wxCharBuffer path = file.mb_str();
         FILE *f = fopen(path, "rb");
         if (!f) {
-                wx_messagebox(this, "Can't open file for read", "metaPC error", wxOK);
+                wx_messagebox(this, "Can't open file for read", "MetaPC error", wxOK);
                 return;
         }
 
@@ -965,7 +965,7 @@ void ConfigDialog::HdFile(int drive) {
                 int vhd_error = 0;
                 MVHDMeta *vhd = mvhd_open(path, false, &vhd_error);
                 if (!vhd) {
-                        wx_messagebox(this, mvhd_strerr((MVHDError)vhd_error), "metaPC error", wxOK);
+                        wx_messagebox(this, mvhd_strerr((MVHDError)vhd_error), "MetaPC error", wxOK);
                         return;
                 }
                 if (vhd_error == MVHD_ERR_TIMESTAMP) {
@@ -975,12 +975,12 @@ void ConfigDialog::HdFile(int drive) {
                                 "This could also happen if the VHD files were moved/copied, or the differencing VHD was "
                                 "created with DiskPart.\n\n"
                                 "Do you wish to fix this error after a file copy or DiskPart creation?";
-                        if (wx_messagebox(this, ts_warning, "metaPC error", wxYES_NO | wxNO_DEFAULT) != wxYES) {
+                        if (wx_messagebox(this, ts_warning, "MetaPC error", wxYES_NO | wxNO_DEFAULT) != wxYES) {
                                 mvhd_close(vhd);
                                 return;
                         }
                         if (mvhd_diff_update_par_timestamp(vhd, &vhd_error) != 0) {
-                                wx_messagebox(this, "Can't fix VHD timestamps", "metaPC error", wxOK);
+                                wx_messagebox(this, "Can't fix VHD timestamps", "MetaPC error", wxOK);
                                 mvhd_close(vhd);
                                 return;
                         }

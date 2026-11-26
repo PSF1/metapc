@@ -208,7 +208,7 @@ void initpc(int argc, char *argv[]) {
 
         for (c = 1; c < argc; c++) {
                 if (!strcasecmp(argv[c], "--help")) {
-                        printf("metaPC command line options :\n\n");
+                        printf("MetaPC command line options :\n\n");
                         printf("--config file.cfg - use given config file as initial configuration\n");
                         printf("--fullscreen      - start in fullscreen mode\n");
                         printf("--load_drive_a file.img - load drive A: with the given disc image\n");
@@ -254,7 +254,7 @@ void initpc(int argc, char *argv[]) {
         loadconfig(NULL);
         /* The paths are known now: start the log, one file per machine (or the manager). */
         pclog_open(config_override ? config_name : "manager");
-        pclog("metaPC " PCEM_VERSION_STRING "\n");
+        pclog("MetaPC " PCEM_VERSION_STRING "\n");
         if (config_override)
                 pclog("Machine configuration: %s\n", config_file_default);
         pclog("Config loaded: model=%s romset=%d cpu=%d gfxcard=%d mem=%d KB hdd_controller=%s\n", model_getname(), romset, cpu,
@@ -560,7 +560,7 @@ void runpc() {
         }
         if (win_title_update) {
                 win_title_update = 0;
-                sprintf(s, "metaPC " PCEM_VERSION_STRING " - %s - %s - %s", config_name, model_getname(),
+                sprintf(s, "MetaPC " PCEM_VERSION_STRING " - %s - %s - %s", config_name, model_getname(),
                         models[model]->cpu[cpu_manufacturer].cpus[cpu].name);
 #ifdef __APPLE__
                 // Needed due to modifying the UI on the non-main thread is a big no-no.

@@ -245,7 +245,7 @@ void HdNewDialog::OnFile(wxCommandEvent &event) {
 void HdNewDialog::OnOk(wxCommandEvent &event) {
         name = file->GetValue();
         if (name.empty()) {
-                wx_messagebox(this, "Please enter a valid filename", "metaPC error", wxOK);
+                wx_messagebox(this, "Please enter a valid filename", "MetaPC error", wxOK);
                 return;
         }
 
@@ -264,11 +264,11 @@ void HdNewDialog::OnOk(wxCommandEvent &event) {
         if (hd_format == 0) {
                 FILE *f = fopen(path, "wb");
                 if (!f) {
-                        wx_messagebox(this, "Can't open file for write", "metaPC error", wxOK);
+                        wx_messagebox(this, "Can't open file for write", "MetaPC error", wxOK);
                         return;
                 }
                 ProgressDialog(
-                        this, "metaPC", "Creating drive, please wait...",
+                        this, "MetaPC", "Creating drive, please wait...",
                         [f, sectors]() {
                                 uint8_t buf[512];
                                 memset(buf, 0, sizeof(buf));
@@ -284,14 +284,14 @@ void HdNewDialog::OnOk(wxCommandEvent &event) {
                 HdGeometry *g = &geometry;
                 const char *p = path;
                 if (!ProgressDialog(
-                            this, "metaPC", "Creating drive, please wait...",
+                            this, "MetaPC", "Creating drive, please wait...",
                             [p, g]() { return CreateDriveVhdFixed(p, *g) ? 1 : 0; }, sectors, &create_drive_pos)) {
-                        wx_messagebox(this, "Can't create VHD", "metaPC error", wxOK);
+                        wx_messagebox(this, "Can't create VHD", "MetaPC error", wxOK);
                         return;
                 }
         } else if (hd_format == 2) {
                 if (!CreateDriveVhdDynamic(path, geometry, hd_blocksize)) {
-                        wx_messagebox(this, "Can't create VHD", "metaPC error", wxOK);
+                        wx_messagebox(this, "Can't create VHD", "MetaPC error", wxOK);
                         return;
                 }
         } else if (hd_format == 3) {
@@ -300,16 +300,16 @@ void HdNewDialog::OnOk(wxCommandEvent &event) {
                                 "Select the parent VHD"))
                         return;
                 if (!CreateDriveVhdDiff(path, parent_path.mb_str(), geometry, hd_blocksize)) {
-                        wx_messagebox(this, "Can't create VHD", "metaPC error", wxOK);
+                        wx_messagebox(this, "Can't create VHD", "MetaPC error", wxOK);
                         return;
                 }
                 wx_messagebox(this,
                               "Differencing VHD image created.\n\n"
                               "WARNING: Do not open or modify the parent image(s) while this file exists.",
-                              "metaPC", wxOK);
+                              "MetaPC", wxOK);
         }
         if (hd_format != 3)
-                wx_messagebox(this, "Drive created, remember to partition and format the new drive.", "metaPC", wxOK);
+                wx_messagebox(this, "Drive created, remember to partition and format the new drive.", "MetaPC", wxOK);
 
         EndModal(wxID_OK);
 }

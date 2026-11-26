@@ -100,7 +100,7 @@ void pclog_open(const char *name) {
         log_reopen = 0;
         log_size = 0;
         log_full = 0;
-        strftime(header, sizeof(header), "metaPC log started %Y-%m-%d %H:%M:%S\n", localtime(&now));
+        strftime(header, sizeof(header), "MetaPC log started %Y-%m-%d %H:%M:%S\n", localtime(&now));
         log_write(header);
         LOG_UNLOCK();
 }

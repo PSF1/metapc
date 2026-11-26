@@ -1017,7 +1017,7 @@ void display_close() { SDL_Quit(); }
 
 void display_start(void *wnd_ptr) {
         window_ptr = wnd_ptr;
-        snprintf(display_title, sizeof(display_title), "metaPC " PCEM_VERSION_STRING " - %s - %s", config_name, model_getname());
+        snprintf(display_title, sizeof(display_title), "MetaPC " PCEM_VERSION_STRING " - %s - %s", config_name, model_getname());
 
 #ifdef __APPLE__
         ((void (*)(void *, SEL, signed char))objc_msgSend)(objc_getClass("NSWindow"), sel_registerName("setAllowsAutomaticWindowTabbing:"),
@@ -1028,7 +1028,7 @@ void display_start(void *wnd_ptr) {
         if (is_embedded()) {
                 if (!display_frame) {
                         pclog("Display: creating the machine window\n");
-                        display_frame = host->panel_create(wnd_ptr, "metaPC " PCEM_VERSION_STRING, sdl_display_event);
+                        display_frame = host->panel_create(wnd_ptr, "MetaPC " PCEM_VERSION_STRING, sdl_display_event);
                         if (display_frame) {
                                 if (host->panel_set_title)
                                         host->panel_set_title(display_frame, display_title);
@@ -1069,7 +1069,7 @@ void display_start(void *wnd_ptr) {
 #endif
 #ifdef PCEM_DISPLAY_X11
         if (is_embedded() && !x11_setup())
-                sdl_host_message("metaPC error", "Could not create the display. metaPC requires X11.");
+                sdl_host_message("MetaPC error", "Could not create the display. MetaPC requires X11.");
 #endif
 
         infocus = 1;

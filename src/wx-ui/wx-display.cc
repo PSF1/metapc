@@ -350,8 +350,8 @@ class MonitorPanel : public wxPanel {
                 wxFont font = GetFont().Bold();
                 gc->SetFont(font, wxColour(150, 150, 156));
                 double tw, th;
-                gc->GetTextExtent("metaPC", &tw, &th);
-                gc->DrawText("metaPC", body.x + (body.width - tw) / 2, chin_y - th / 2);
+                gc->GetTextExtent("MetaPC", &tw, &th);
+                gc->DrawText("MetaPC", body.x + (body.width - tw) / 2, chin_y - th / 2);
 
                 wxColour led = power == EMULATION_RUNNING ? wxColour(60, 230, 60)
                                                           : (power == EMULATION_PAUSED ? wxColour(240, 170, 20) : wxColour(70, 70, 70));

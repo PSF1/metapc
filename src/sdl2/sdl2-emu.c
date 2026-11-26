@@ -347,7 +347,7 @@ int emulator_check_roms(void) {
                         break;
         }
         if (c == ROM_MAX) {
-                sdl_host_message("metaPC fatal error", "No ROMs present!\nYou must have at least one romset to use metaPC.");
+                sdl_host_message("MetaPC fatal error", "No ROMs present!\nYou must have at least one romset to use MetaPC.");
                 return 0;
         }
 
@@ -387,7 +387,7 @@ int start_emulation(void *params) {
         if (!loadbios()) {
                 pclog("Start: the BIOS for romset %d is not available\n", romset);
                 if (romset != -1)
-                        sdl_host_message("metaPC error", "Configured romset not available.\nDefaulting to available romset.");
+                        sdl_host_message("MetaPC error", "Configured romset not available.\nDefaulting to available romset.");
                 for (c = 0; c < ROM_MAX; c++) {
                         if (romspresent[c]) {
                                 romset = c;
@@ -400,7 +400,7 @@ int start_emulation(void *params) {
         if (!video_card_available(video_old_to_new(gfxcard))) {
                 pclog("Start: the BIOS for video card %d is not available\n", gfxcard);
                 if (romset != -1)
-                        sdl_host_message("metaPC error", "Configured video BIOS not available.\nDefaulting to available romset.");
+                        sdl_host_message("MetaPC error", "Configured video BIOS not available.\nDefaulting to available romset.");
                 for (c = GFX_MAX - 1; c >= 0; c--) {
                         if (gfx_present[c]) {
                                 gfxcard = c;

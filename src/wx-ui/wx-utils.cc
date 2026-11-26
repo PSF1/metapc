@@ -5,7 +5,7 @@
 
 int confirm() {
         if (emulation_state != EMULATION_STOPPED)
-                return wx_messagebox(NULL, "This will reset metaPC!\nOkay to continue?", "metaPC", wxOK | wxCANCEL) == wxOK;
+                return wx_messagebox(NULL, "This will reset MetaPC!\nOkay to continue?", "MetaPC", wxOK | wxCANCEL) == wxOK;
         return 1;
 }
 

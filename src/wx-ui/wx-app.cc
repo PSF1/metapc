@@ -51,7 +51,7 @@ int App::OnExit() {
 }
 
 bool App::OnInit() {
-        SetAppDisplayName("metaPC");
+        SetAppDisplayName("MetaPC");
         wxImage::AddHandler(new wxPNGHandler);
         wxXmlResource::Get()->InitAllHandlers();
         InitXmlResource();
@@ -136,7 +136,7 @@ void Frame::Start() {
         }
         if (!lock_machine()) {
                 pclog("UI: the machine is already running in another process\n");
-                wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "metaPC",
+                wx_messagebox(NULL, wxString::Format("The machine \"%s\" is already running.", config_name), "MetaPC",
                               wxOK | wxICON_INFORMATION);
                 Quit(1);
                 return;
