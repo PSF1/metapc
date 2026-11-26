@@ -70,7 +70,7 @@ class ConfigDialog : public wxDialog {
         wxWindow *btn_joystick[4];
         wxWindow *btn_model_cfg, *btn_video_cfg, *btn_voodoo_cfg, *btn_sound_cfg, *btn_hdd_cfg, *btn_lpt1_cfg;
         wxComboBox *cb_netcard;
-        wxWindow *btn_netcard_cfg, *text_macaddr, *net_panel;
+        wxWindow *btn_netcard_cfg, *text_macaddr, *btn_macaddr_random, *net_panel;
         wxTextCtrl *edit_macaddr;
         wxListCtrl *page_list;
         wxSimplebook *pages;

@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <functional>
+#include <random>
 #include <stdio.h>
 #include <thread>
 #include <vector>
@@ -161,6 +162,7 @@ void ConfigDialog::FindControls() {
         btn_netcard_cfg = Ctrl<wxWindow>("IDC_CONFIGURE_NETCARD");
         text_macaddr = Ctrl<wxWindow>("m_staticTextMacAddr");
         edit_macaddr = Ctrl<wxTextCtrl>("IDC_EDIT_MACADDR");
+        btn_macaddr_random = Ctrl<wxWindow>("IDC_RANDOM_MACADDR");
         net_panel = Ctrl<wxWindow>("m_panelnet");
         page_list = Ctrl<wxListCtrl>("IDC_PAGESELECTION");
         pages = Ctrl<wxSimplebook>("IDC_NOTEBOOK");
@@ -546,6 +548,7 @@ void ConfigDialog::UpdateMacaddrVisibility() {
         bool show = SelectedNetworkCardHasDevice();
         text_macaddr->Show(show);
         edit_macaddr->Show(show);
+        btn_macaddr_random->Show(show);
         net_panel->Layout();
 }
 
@@ -722,6 +725,18 @@ void ConfigDialog::BindEvents() {
         });
         btn_netcard_cfg->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
                 DeviceConfigDialog::Open(this, network_card_getdevice(SelectedNetworkCard()));
+        });
+        btn_macaddr_random->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution<int> dist(0, 255);
+                unsigned char mac[6];
+                for (int c = 0; c < 6; c++)
+                        mac[c] = dist(gen);
+                /* Unicast, locally administered: never clashes with a real vendor's address. */
+                mac[0] = (mac[0] & 0xfc) | 0x02;
+                edit_macaddr->ChangeValue(wxString::Format("%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
+                                                           mac[4], mac[5]));
         });
 #endif
 

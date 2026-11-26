@@ -1090,6 +1090,15 @@
 													<maxlength>17</maxlength>
 												</object>
 											</object>
+											<object class="sizeritem">
+												<option>0</option>
+												<flag>wxALL</flag>
+												<border>5</border>
+												<object class="wxButton" name="IDC_RANDOM_MACADDR">
+													<label>Random</label>
+													<tooltip>Generate a random MAC address</tooltip>
+												</object>
+											</object>
 										</object>
 									</object>
 								</object>
