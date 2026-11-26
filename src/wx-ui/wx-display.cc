@@ -15,6 +15,7 @@
 extern "C" {
 #include "ibm.h"
 #include "config.h"
+#include "sdl2-display.h"
 }
 
 #ifdef __WXOSX__
@@ -216,6 +217,33 @@ class DriveStatusPanel : public wxPanel {
 #define MONITOR_SIDE 18
 #define MONITOR_TOP 18
 #define MONITOR_BOTTOM 34
+/* The screen filter button on the chin. */
+#define MONITOR_BUTTON_HEIGHT 16
+static const double PI = 3.14159265358979;
+
+enum {
+        ID_FILTER_FIRST = wxID_HIGHEST + 6100,
+        ID_FILTER_LAST = ID_FILTER_FIRST + VIDEO_FILTER_AMBER,
+};
+
+struct ScreenFilter {
+        const char *label; /* menu */
+        const char *badge; /* on the button */
+        wxColour swatch;
+};
+
+static const ScreenFilter screen_filters[] = {
+        {"&Colour", "Colour", wxColour(0, 0, 0)},
+        {"&Black and white", "B/W", wxColour(220, 220, 220)},
+        {"&Green phosphor", "Green", wxColour(51, 255, 80)},
+        {"&Amber (yellow) phosphor", "Amber", wxColour(255, 190, 0)},
+};
+
+static void append_filter_items(wxMenu *menu, int current) {
+        for (int i = 0; i <= VIDEO_FILTER_AMBER; i++)
+                menu->AppendRadioItem(ID_FILTER_FIRST + i, screen_filters[i].label);
+        menu->Check(ID_FILTER_FIRST + current, true);
+}
 
 /* The centre pane: draws a monitor around the canvas SDL renders into. With a fixed-size
    display (the default "Original" resolution) the screen keeps its size and the monitor sits
@@ -224,10 +252,24 @@ class MonitorPanel : public wxPanel {
     public:
         MonitorPanel(wxWindow *parent)
                 : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE), bezel(true), fullscreen(false),
-                  top_inset(0), screen_size(wxDefaultSize), power(EMULATION_STOPPED) {
+                  top_inset(0), screen_size(wxDefaultSize), power(EMULATION_STOPPED), filter(VIDEO_FILTER_COLOR),
+                  button_hover(false) {
                 SetBackgroundStyle(wxBG_STYLE_PAINT);
                 canvas = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(640, 480), wxWANTS_CHARS);
                 Bind(wxEVT_PAINT, &MonitorPanel::OnPaint, this);
+                Bind(wxEVT_MOTION, [this](wxMouseEvent &event) { SetButtonHover(ButtonRect().Contains(event.GetPosition())); });
+                Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &event) { SetButtonHover(false); });
+                Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &event) {
+                        wxRect button = ButtonRect();
+                        if (!button.Contains(event.GetPosition()))
+                                return;
+                        wxMenu popup;
+                        append_filter_items(&popup, filter);
+                        PopupMenu(&popup, button.GetLeft(), button.GetBottom() + 1);
+                });
+                Bind(
+                        wxEVT_MENU, [this](wxCommandEvent &event) { SetFilter(event.GetId() - ID_FILTER_FIRST); }, ID_FILTER_FIRST,
+                        ID_FILTER_LAST);
                 Bind(wxEVT_SIZE, [this](wxSizeEvent &event) {
                         PlaceCanvas();
                         Refresh();
@@ -264,6 +306,19 @@ class MonitorPanel : public wxPanel {
                               2 * FromDIP(MONITOR_OUTER) + FromDIP(MONITOR_TOP) + FromDIP(MONITOR_BOTTOM));
         }
 
+        int GetFilter() const { return filter; }
+
+        void SetFilter(int f) {
+                if (f < VIDEO_FILTER_COLOR || f > VIDEO_FILTER_AMBER)
+                        f = VIDEO_FILTER_COLOR;
+                filter = f;
+                video_set_color_filter(f);
+                if (button_hover)
+                        SetToolTip(ButtonToolTip());
+                if (ShowsBezel())
+                        Refresh();
+        }
+
         void SetPowerState(int state) {
                 if (state != power) {
                         power = state;
@@ -279,8 +334,43 @@ class MonitorPanel : public wxPanel {
         int top_inset;
         wxSize screen_size;
         int power;
+        int filter;
+        bool button_hover;
 
         bool ShowsBezel() const { return bezel && !fullscreen; }
+
+        wxString ButtonToolTip() const {
+                wxString label = screen_filters[filter].label;
+                label.Replace("&", "");
+                return "Screen filter: " + label;
+        }
+
+        void SetButtonHover(bool on) {
+                if (on == button_hover)
+                        return;
+                button_hover = on;
+                SetCursor(on ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
+                if (on)
+                        SetToolTip(ButtonToolTip());
+                else
+                        UnsetToolTip();
+                Refresh();
+        }
+
+        int ChinCentre(const wxRect &screen) const {
+                return screen.GetBottom() + FromDIP(4) + (FromDIP(MONITOR_BOTTOM) - FromDIP(4)) / 2;
+        }
+
+        /* The screen filter button, at the left of the chin (the power LED is at the right). */
+        wxRect ButtonRect() const {
+                if (!ShowsBezel())
+                        return wxRect();
+                wxRect screen = ScreenRect();
+                int h = FromDIP(MONITOR_BUTTON_HEIGHT);
+                wxSize text = GetTextExtent("Colour");
+                int w = FromDIP(6) + h / 2 + FromDIP(5) + text.x + FromDIP(8);
+                return wxRect(screen.x, ChinCentre(screen) - h / 2, w, h);
+        }
 
         wxRect ScreenRect() const {
                 wxSize client = GetClientSize();
@@ -346,7 +436,36 @@ class MonitorPanel : public wxPanel {
                 gc->DrawRoundedRectangle(surround.x, surround.y, surround.width, surround.height, FromDIP(3));
 
                 /* badge and power LED on the chin */
-                int chin_y = screen.GetBottom() + FromDIP(4) + (FromDIP(MONITOR_BOTTOM) - FromDIP(4)) / 2;
+                int chin_y = ChinCentre(screen);
+
+                /* screen filter button: a swatch of the filter's colour and its name */
+                wxRect button = ButtonRect();
+                gc->SetPen(wxPen(button_hover ? wxColour(120, 120, 128) : wxColour(28, 28, 30)));
+                gc->SetBrush(wxBrush(button_hover ? wxColour(70, 70, 76) : wxColour(48, 48, 52)));
+                gc->DrawRoundedRectangle(button.x, button.y, button.width, button.height, button.height / 2.0);
+                double sr = button.height / 4.0;
+                double sx = button.x + FromDIP(6) + sr, sy = button.y + button.height / 2.0;
+                if (filter == VIDEO_FILTER_COLOR) {
+                        static const wxColour rgb[3] = {wxColour(230, 60, 60), wxColour(60, 200, 60), wxColour(70, 110, 240)};
+                        gc->SetPen(*wxTRANSPARENT_PEN);
+                        for (int i = 0; i < 3; i++) {
+                                wxGraphicsPath path = gc->CreatePath();
+                                path.MoveToPoint(sx, sy);
+                                path.AddArc(sx, sy, sr, (-90 + 120 * i) * PI / 180, (30 + 120 * i) * PI / 180, true);
+                                path.CloseSubpath();
+                                gc->SetBrush(wxBrush(rgb[i]));
+                                gc->FillPath(path);
+                        }
+                } else {
+                        gc->SetPen(wxPen(screen_filters[filter].swatch.ChangeLightness(60)));
+                        gc->SetBrush(wxBrush(screen_filters[filter].swatch));
+                        gc->DrawEllipse(sx - sr, sy - sr, 2 * sr, 2 * sr);
+                }
+                gc->SetFont(GetFont(), button_hover ? wxColour(225, 225, 230) : wxColour(170, 170, 176));
+                double bw, bh;
+                gc->GetTextExtent(screen_filters[filter].badge, &bw, &bh);
+                gc->DrawText(screen_filters[filter].badge, sx + sr + FromDIP(5), sy - bh / 2);
+
                 wxFont font = GetFont().Bold();
                 gc->SetFont(font, wxColour(150, 150, 156));
                 double tw, th;
@@ -438,6 +557,7 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
 
         monitor = new MonitorPanel(this);
         monitor->SetBezel(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", 1) != 0);
+        monitor->SetFilter(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "screen_filter", VIDEO_FILTER_COLOR));
         canvas = monitor->Canvas();
         canvas->SetBackgroundStyle(wxBG_STYLE_PAINT);
         canvas->SetBackgroundColour(*wxBLACK);
@@ -599,6 +719,9 @@ void DisplayFrame::BuildPanelsMenu() {
                 panels_menu->AppendCheckItem(ID_PANEL_FIRST + i, panels[i]->Caption());
         panels_menu->AppendSeparator();
         panels_menu->AppendCheckItem(ID_MONITOR_FRAME, "&Monitor frame");
+        wxMenu *filters = new wxMenu();
+        append_filter_items(filters, monitor->GetFilter());
+        panels_menu->AppendSubMenu(filters, "Screen &filter");
         panels_menu->Append(ID_RESET_LAYOUT, "&Reset layout");
         UpdatePanelsMenu();
 }
@@ -612,6 +735,7 @@ void DisplayFrame::UpdatePanelsMenu() {
                         item->Check(aui.GetPane(panels[i]).IsShown());
         }
         panels_menu->Check(ID_MONITOR_FRAME, monitor->HasBezel());
+        panels_menu->Check(ID_FILTER_FIRST + monitor->GetFilter(), true);
 }
 
 bool DisplayFrame::HandlePanelsMenu(int id) {
@@ -627,6 +751,10 @@ bool DisplayFrame::HandlePanelsMenu(int id) {
         if (id == ID_MONITOR_FRAME) {
                 monitor->SetBezel(!monitor->HasBezel());
                 SetDisplaySize(last_size.x, last_size.y, last_resizable);
+                return true;
+        }
+        if (id >= ID_FILTER_FIRST && id <= ID_FILTER_LAST) {
+                monitor->SetFilter(id - ID_FILTER_FIRST);
                 return true;
         }
         if (id == ID_RESET_LAYOUT) {
@@ -696,6 +824,7 @@ void DisplayFrame::SaveWindowConfig() {
         }
         wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "maximized", maximized);
         wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", f->monitor->HasBezel());
+        wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "screen_filter", f->monitor->GetFilter());
         write_layout(f->CurrentLayout());
 }
 

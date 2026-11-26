@@ -13,6 +13,14 @@ void display_resize(int width, int height);
 int display_raw_mouse(int *dx, int *dy, int *buttons);
 int display_host_mouse_buttons();
 
+/* Colour filter for the emulated screen, as on a monochrome monitor. */
+#define VIDEO_FILTER_COLOR 0
+#define VIDEO_FILTER_GRAY 1
+#define VIDEO_FILTER_GREEN 2
+#define VIDEO_FILTER_AMBER 3
+void video_set_color_filter(int filter);
+int video_get_color_filter();
+
 #ifdef __cplusplus
 }
 #endif

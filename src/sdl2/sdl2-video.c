@@ -7,6 +7,7 @@
 #include "ibm.h"
 #include "video.h"
 #include "sdl2-video.h"
+#include "sdl2-display.h"
 
 #include "sdl2-video-gl3.h"
 #include "sdl2-video-renderer.h"
@@ -15,6 +16,11 @@ void video_blit_complete();
 
 VIDEO_BITMAP *screen = NULL;
 static VIDEO_BITMAP *screen_copy = NULL;
+/* The colour filter is applied when the image goes to the renderer, into its own bitmap, so
+   the emulated image stays untouched and a change of filter redraws it at once. */
+static VIDEO_BITMAP *screen_filtered = NULL;
+static int color_filter = VIDEO_FILTER_COLOR;
+static uint32_t filter_lut[256];
 flash_t flash = {0};
 static SDL_Rect screen_rect;
 static SDL_Rect updated_rect;
@@ -193,6 +199,69 @@ static void sdl_blit_memtoscreen(int x, int y, int y1, int y2, int w, int h) {
         video_blit_complete();
 }
 
+static void build_filter_lut(int filter) {
+        /* Phosphor tints, at full brightness. */
+        int r = 255, g = 255, b = 255;
+        if (filter == VIDEO_FILTER_GREEN) {
+                r = 51;
+                g = 255;
+                b = 80;
+        } else if (filter == VIDEO_FILTER_AMBER) {
+                r = 255;
+                g = 190;
+                b = 0;
+        }
+        for (int i = 0; i < 256; i++)
+                filter_lut[i] = ((r * i / 255) << 16) | ((g * i / 255) << 8) | (b * i / 255);
+}
+
+void video_set_color_filter(int filter) {
+        if (filter < VIDEO_FILTER_COLOR || filter > VIDEO_FILTER_AMBER)
+                filter = VIDEO_FILTER_COLOR;
+        if (!blitMutex) {
+                color_filter = filter;
+                build_filter_lut(filter);
+                return;
+        }
+        SDL_LockMutex(blitMutex);
+        color_filter = filter;
+        build_filter_lut(filter);
+        /* Send the whole current image again. */
+        if (blit_rect.w > 0 && blit_rect.h > 0) {
+                updated_rect.x = 0;
+                updated_rect.y = 0;
+                updated_rect.w = blit_rect.w;
+                updated_rect.h = blit_rect.h;
+                updated = 1;
+        }
+        SDL_UnlockMutex(blitMutex);
+}
+
+int video_get_color_filter() { return color_filter; }
+
+/* Returns the bitmap to give the renderer for rect: src itself, or a filtered copy. */
+static VIDEO_BITMAP *apply_color_filter(VIDEO_BITMAP *src, SDL_Rect rect) {
+        if (color_filter == VIDEO_FILTER_COLOR)
+                return src;
+        if (!screen_filtered)
+                screen_filtered = create_bitmap(screen_rect.w, screen_rect.h);
+        int x1 = rect.x < 0 ? 0 : rect.x;
+        int y1 = rect.y < 0 ? 0 : rect.y;
+        int x2 = rect.x + rect.w > src->w ? src->w : rect.x + rect.w;
+        int y2 = rect.y + rect.h > src->h ? src->h : rect.y + rect.h;
+        for (int y = y1; y < y2; y++) {
+                uint32_t *in = (uint32_t *)src->line[y];
+                uint32_t *out = (uint32_t *)screen_filtered->line[y];
+                for (int x = x1; x < x2; x++) {
+                        uint32_t p = in[x];
+                        /* Rec. 601 luma */
+                        int l = (((p >> 16) & 0xff) * 77 + ((p >> 8) & 0xff) * 150 + (p & 0xff) * 29) >> 8;
+                        out[x] = (p & 0xff000000) | filter_lut[l];
+                }
+        }
+        return screen_filtered;
+}
+
 int sdl_is_fullscreen(SDL_Window *window) {
         int flags = SDL_GetWindowFlags(window);
         return (flags & SDL_WINDOW_FULLSCREEN) || (flags & SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -208,6 +277,7 @@ int sdl_video_init() {
         screen_rect.w = screen_rect.h = 2048;
 
         screen = create_bitmap(screen_rect.w, screen_rect.h);
+        build_filter_lut(color_filter);
 
         return SDL_TRUE;
 }
@@ -217,7 +287,11 @@ void sdl_video_close() {
         renderer = NULL;
         destroy_bitmap(screen);
         screen = NULL;
+        if (screen_filtered)
+                destroy_bitmap(screen_filtered);
+        screen_filtered = NULL;
         SDL_DestroyMutex(blitMutex);
+        blitMutex = NULL;
 }
 
 int sdl_renderer_init(SDL_Window *window) {
@@ -256,14 +330,14 @@ int sdl_renderer_update(SDL_Window *window) {
                         memcpy(screen_copy->dat + (updated_rect.y * screen_copy->w * 4),
                                screen->dat + (updated_rect.y * screen->w * 4), updated_rect.h * screen->w * 4);
                 } else
-                        renderer->update(window, updated_rect, screen);
+                        renderer->update(window, updated_rect, apply_color_filter(screen, updated_rect));
                 texture_rect.w = blit_rect.w;
                 texture_rect.h = blit_rect.h;
                 render = 1;
         }
         SDL_UnlockMutex(blitMutex);
         if (screen_copy && render)
-                renderer->update(window, updated_rect_copy, screen_copy);
+                renderer->update(window, updated_rect_copy, apply_color_filter(screen_copy, updated_rect_copy));
         return render || renderer->always_update;
 }
 
