@@ -24,6 +24,7 @@ extern "C" {
 #include "sdl2-emu.h"
 #include "ide.h"
 #include "hdd_hostdisk.h"
+#include "paths.h"
 #include "ibm.h"
 #include "config.h"
 }
@@ -181,6 +182,12 @@ static bool relaunch_elevated() {
         wxString params;
         for (int i = 1; i < wxTheApp->argc; i++)
                 params += (i > 1 ? " " : "") + quote_arg(wxTheApp->argv[i]);
+        /* If the user is not an administrator, Windows asks for another account's password and
+           the machine runs as that account, whose home folder is different: keep using this
+           user's data folder (ROMs, settings, CMOS), and say who asked so problems can be
+           explained. */
+        params += " --data-dir " + quote_arg(wxString(pcem_path));
+        params += " --elevated-by " + quote_arg(wxGetUserId());
         wxString exe = wxStandardPaths::Get().GetExecutablePath();
         wxString cwd = wxGetCwd();
 

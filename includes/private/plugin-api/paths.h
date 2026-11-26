@@ -12,6 +12,8 @@ PCEM_API extern char screenshots_path[512];
 PCEM_API extern char nvr_default_path[512];
 
 PCEM_API void get_pcem_path(char *s, int size);
+/* Uses this folder as the data folder instead of the usual one (--data-dir). Call before paths_init(). */
+PCEM_API void set_pcem_path_override(const char *s);
 PCEM_API char get_path_separator();
 PCEM_API void paths_init();
 PCEM_API int dir_exists(char *path);

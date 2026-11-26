@@ -297,6 +297,11 @@ int pc_main(int argc, char **argv) {
         _dumpregs = dumpregs;
         _sound_speed_changed = sound_speed_changed;
 
+        /* --data-dir must be known before the paths are set up. */
+        for (int c = 1; c + 1 < argc; c++)
+                if (!strcasecmp(argv[c], "--data-dir"))
+                        set_pcem_path_override(argv[c + 1]);
+
         paths_init();
 
         init_plugin_engine();

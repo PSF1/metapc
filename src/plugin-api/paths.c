@@ -215,7 +215,16 @@ void paths_init() {
         add_config_callback(paths_loadconfig, paths_saveconfig, paths_onconfigloaded);
 }
 
+static char pcem_path_override[512];
+
+void set_pcem_path_override(const char *s) { safe_strncpy(pcem_path_override, (char *)s, 512); }
+
 void get_pcem_path(char *s, int size) {
+        if (pcem_path_override[0]) {
+                safe_strncpy(s, pcem_path_override, size);
+                append_slash(s, size);
+                return;
+        }
 #if defined(__APPLE__)
         /*TODO: Use CoreFoundation functions to get proper directory, in case
           the Application Support directory is different (I.E., with signing)*/

@@ -213,6 +213,7 @@ void initpc(int argc, char *argv[]) {
                         printf("--fullscreen      - start in fullscreen mode\n");
                         printf("--load_drive_a file.img - load drive A: with the given disc image\n");
                         printf("--load_drive_b file.img - load drive B: with the given disc image\n");
+                        printf("--data-dir folder - use the given data folder (ROMs, configs, NVR) instead of the usual one\n");
                         exit(-1);
                 } else if (!strcasecmp(argv[c], "--fullscreen")) {
                         start_in_fullscreen = 1;
@@ -231,6 +232,9 @@ void initpc(int argc, char *argv[]) {
                         }
 
                         config_override = 1;
+                        c++;
+                } else if (!strcasecmp(argv[c], "--data-dir") || !strcasecmp(argv[c], "--elevated-by")) {
+                        /* --data-dir is handled in pc_main(), --elevated-by by the UI. */
                         c++;
                 } else if (!strcasecmp(argv[c], "--load_drive_a")) {
                         if ((c + 1) == argc)
