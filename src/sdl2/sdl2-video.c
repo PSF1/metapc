@@ -20,6 +20,7 @@ static VIDEO_BITMAP *screen_copy = NULL;
    the emulated image stays untouched and a change of filter redraws it at once. */
 static VIDEO_BITMAP *screen_filtered = NULL;
 static int color_filter = VIDEO_FILTER_COLOR;
+static int crt_effect = 0;
 static uint32_t filter_lut[256];
 flash_t flash = {0};
 static SDL_Rect screen_rect;
@@ -215,18 +216,8 @@ static void build_filter_lut(int filter) {
                 filter_lut[i] = ((r * i / 255) << 16) | ((g * i / 255) << 8) | (b * i / 255);
 }
 
-void video_set_color_filter(int filter) {
-        if (filter < VIDEO_FILTER_COLOR || filter > VIDEO_FILTER_AMBER)
-                filter = VIDEO_FILTER_COLOR;
-        if (!blitMutex) {
-                color_filter = filter;
-                build_filter_lut(filter);
-                return;
-        }
-        SDL_LockMutex(blitMutex);
-        color_filter = filter;
-        build_filter_lut(filter);
-        /* Send the whole current image again. */
+/* Sends the whole current image to the renderer again. Call with blitMutex held. */
+static void refilter_screen() {
         if (blit_rect.w > 0 && blit_rect.h > 0) {
                 updated_rect.x = 0;
                 updated_rect.y = 0;
@@ -234,14 +225,79 @@ void video_set_color_filter(int filter) {
                 updated_rect.h = blit_rect.h;
                 updated = 1;
         }
-        SDL_UnlockMutex(blitMutex);
+}
+
+void video_set_color_filter(int filter) {
+        if (filter < VIDEO_FILTER_COLOR || filter > VIDEO_FILTER_AMBER)
+                filter = VIDEO_FILTER_COLOR;
+        if (blitMutex)
+                SDL_LockMutex(blitMutex);
+        color_filter = filter;
+        build_filter_lut(filter);
+        if (blitMutex) {
+                refilter_screen();
+                SDL_UnlockMutex(blitMutex);
+        }
 }
 
 int video_get_color_filter() { return color_filter; }
 
+void video_set_crt_effect(int on) {
+        if (blitMutex)
+                SDL_LockMutex(blitMutex);
+        crt_effect = on ? 1 : 0;
+        if (blitMutex) {
+                refilter_screen();
+                SDL_UnlockMutex(blitMutex);
+        }
+}
+
+int video_get_crt_effect() { return crt_effect; }
+
+/* CRT effect: brightness per column and per row, in 1/256ths. Rows alternate between a lit
+   scanline and the darker gap between scanlines; both fall off towards the edges (vignette). */
+#define CRT_GAP 150     /* brightness of the gap between scanlines */
+#define CRT_EDGE 200    /* brightness at the edges of the screen */
+#define CRT_BOOST 280   /* the lit lines, a little brighter to make up for the gaps */
+static int crt_w = 0, crt_h = 0;
+static uint16_t crt_col[2048];
+static uint16_t crt_row[2048];
+
+static int crt_falloff(int i, int n) {
+        /* 256 in the middle, CRT_EDGE at the edges, quadratic */
+        double d = n > 1 ? (2.0 * i / (n - 1) - 1.0) : 0.0;
+        return 256 - (int)((256 - CRT_EDGE) * d * d);
+}
+
+static void build_crt_tables(int w, int h) {
+        if (w == crt_w && h == crt_h)
+                return;
+        crt_w = w;
+        crt_h = h;
+        for (int x = 0; x < w && x < 2048; x++)
+                crt_col[x] = crt_falloff(x, w);
+        for (int y = 0; y < h && y < 2048; y++)
+                crt_row[y] = crt_falloff(y, h) * ((y & 1) ? CRT_GAP : CRT_BOOST) / 256;
+}
+
+/* Scales each channel of p by f/256, saturating. */
+static inline uint32_t scale_pixel(uint32_t p, int f) {
+        int r = (((p >> 16) & 0xff) * f) >> 8;
+        int g = (((p >> 8) & 0xff) * f) >> 8;
+        int b = ((p & 0xff) * f) >> 8;
+        if (r > 255)
+                r = 255;
+        if (g > 255)
+                g = 255;
+        if (b > 255)
+                b = 255;
+        return (p & 0xff000000) | (r << 16) | (g << 8) | b;
+}
+
 /* Returns the bitmap to give the renderer for rect: src itself, or a filtered copy. */
 static VIDEO_BITMAP *apply_color_filter(VIDEO_BITMAP *src, SDL_Rect rect) {
-        if (color_filter == VIDEO_FILTER_COLOR)
+        int crt = crt_effect;
+        if (color_filter == VIDEO_FILTER_COLOR && !crt)
                 return src;
         if (!screen_filtered)
                 screen_filtered = create_bitmap(screen_rect.w, screen_rect.h);
@@ -249,14 +305,30 @@ static VIDEO_BITMAP *apply_color_filter(VIDEO_BITMAP *src, SDL_Rect rect) {
         int y1 = rect.y < 0 ? 0 : rect.y;
         int x2 = rect.x + rect.w > src->w ? src->w : rect.x + rect.w;
         int y2 = rect.y + rect.h > src->h ? src->h : rect.y + rect.h;
+        int w = blit_rect.w > 0 ? blit_rect.w : x2;
+        int h = blit_rect.h > 0 ? blit_rect.h : y2;
+        if (crt)
+                build_crt_tables(w, h);
         for (int y = y1; y < y2; y++) {
                 uint32_t *in = (uint32_t *)src->line[y];
                 uint32_t *out = (uint32_t *)screen_filtered->line[y];
+                int row = (crt && y < 2048) ? crt_row[y] : 256;
                 for (int x = x1; x < x2; x++) {
                         uint32_t p = in[x];
-                        /* Rec. 601 luma */
-                        int l = (((p >> 16) & 0xff) * 77 + ((p >> 8) & 0xff) * 150 + (p & 0xff) * 29) >> 8;
-                        out[x] = (p & 0xff000000) | filter_lut[l];
+                        if (crt) {
+                                /* the beam spreads a little: soften horizontally */
+                                uint32_t l = in[x > 0 ? x - 1 : x];
+                                uint32_t r = in[x + 1 < w ? x + 1 : x];
+                                p = (p & 0xff000000) + ((p & 0xfefefe) >> 1) + ((l & 0xfcfcfc) >> 2) + ((r & 0xfcfcfc) >> 2);
+                        }
+                        if (color_filter != VIDEO_FILTER_COLOR) {
+                                /* Rec. 601 luma */
+                                int lum = (((p >> 16) & 0xff) * 77 + ((p >> 8) & 0xff) * 150 + (p & 0xff) * 29) >> 8;
+                                p = (p & 0xff000000) | filter_lut[lum];
+                        }
+                        if (crt)
+                                p = scale_pixel(p, (row * (x < 2048 ? crt_col[x] : 256)) >> 8);
+                        out[x] = p;
                 }
         }
         return screen_filtered;

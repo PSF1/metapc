@@ -217,14 +217,17 @@ class DriveStatusPanel : public wxPanel {
 #define MONITOR_SIDE 18
 #define MONITOR_TOP 18
 #define MONITOR_BOTTOM 34
-/* The screen filter button on the chin. */
+/* The screen filter and CRT buttons on the chin. */
 #define MONITOR_BUTTON_HEIGHT 16
 static const double PI = 3.14159265358979;
 
 enum {
         ID_FILTER_FIRST = wxID_HIGHEST + 6100,
         ID_FILTER_LAST = ID_FILTER_FIRST + VIDEO_FILTER_AMBER,
+        ID_CRT_EFFECT,
 };
+
+enum { BUTTON_NONE = -1, BUTTON_FILTER, BUTTON_CRT };
 
 struct ScreenFilter {
         const char *label; /* menu */
@@ -253,19 +256,22 @@ class MonitorPanel : public wxPanel {
         MonitorPanel(wxWindow *parent)
                 : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE), bezel(true), fullscreen(false),
                   top_inset(0), screen_size(wxDefaultSize), power(EMULATION_STOPPED), filter(VIDEO_FILTER_COLOR),
-                  button_hover(false) {
+                  crt(false), hover(BUTTON_NONE) {
                 SetBackgroundStyle(wxBG_STYLE_PAINT);
                 canvas = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(640, 480), wxWANTS_CHARS);
                 Bind(wxEVT_PAINT, &MonitorPanel::OnPaint, this);
-                Bind(wxEVT_MOTION, [this](wxMouseEvent &event) { SetButtonHover(ButtonRect().Contains(event.GetPosition())); });
-                Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &event) { SetButtonHover(false); });
+                Bind(wxEVT_MOTION, [this](wxMouseEvent &event) { SetHover(HitButton(event.GetPosition())); });
+                Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &event) { SetHover(BUTTON_NONE); });
                 Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &event) {
-                        wxRect button = ButtonRect();
-                        if (!button.Contains(event.GetPosition()))
-                                return;
-                        wxMenu popup;
-                        append_filter_items(&popup, filter);
-                        PopupMenu(&popup, button.GetLeft(), button.GetBottom() + 1);
+                        int hit = HitButton(event.GetPosition());
+                        if (hit == BUTTON_CRT)
+                                SetCrt(!crt);
+                        else if (hit == BUTTON_FILTER) {
+                                wxRect button = ButtonRect(BUTTON_FILTER);
+                                wxMenu popup;
+                                append_filter_items(&popup, filter);
+                                PopupMenu(&popup, button.GetLeft(), button.GetBottom() + 1);
+                        }
                 });
                 Bind(
                         wxEVT_MENU, [this](wxCommandEvent &event) { SetFilter(event.GetId() - ID_FILTER_FIRST); }, ID_FILTER_FIRST,
@@ -313,8 +319,17 @@ class MonitorPanel : public wxPanel {
                         f = VIDEO_FILTER_COLOR;
                 filter = f;
                 video_set_color_filter(f);
-                if (button_hover)
-                        SetToolTip(ButtonToolTip());
+                UpdateToolTip();
+                if (ShowsBezel())
+                        Refresh();
+        }
+
+        bool GetCrt() const { return crt; }
+
+        void SetCrt(bool on) {
+                crt = on;
+                video_set_crt_effect(on);
+                UpdateToolTip();
                 if (ShowsBezel())
                         Refresh();
         }
@@ -335,41 +350,73 @@ class MonitorPanel : public wxPanel {
         wxSize screen_size;
         int power;
         int filter;
-        bool button_hover;
+        bool crt;
+        int hover;
 
         bool ShowsBezel() const { return bezel && !fullscreen; }
 
-        wxString ButtonToolTip() const {
-                wxString label = screen_filters[filter].label;
-                label.Replace("&", "");
-                return "Screen filter: " + label;
-        }
-
-        void SetButtonHover(bool on) {
-                if (on == button_hover)
-                        return;
-                button_hover = on;
-                SetCursor(on ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
-                if (on)
-                        SetToolTip(ButtonToolTip());
+        void UpdateToolTip() {
+                if (hover == BUTTON_FILTER) {
+                        wxString label = screen_filters[filter].label;
+                        label.Replace("&", "");
+                        SetToolTip("Screen filter: " + label);
+                } else if (hover == BUTTON_CRT)
+                        SetToolTip(crt ? "CRT effect: on" : "CRT effect: off");
                 else
                         UnsetToolTip();
+        }
+
+        void SetHover(int button) {
+                if (button == hover)
+                        return;
+                hover = button;
+                SetCursor(button != BUTTON_NONE ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
+                UpdateToolTip();
                 Refresh();
+        }
+
+        int HitButton(const wxPoint &pt) const {
+                if (ButtonRect(BUTTON_FILTER).Contains(pt))
+                        return BUTTON_FILTER;
+                if (ButtonRect(BUTTON_CRT).Contains(pt))
+                        return BUTTON_CRT;
+                return BUTTON_NONE;
         }
 
         int ChinCentre(const wxRect &screen) const {
                 return screen.GetBottom() + FromDIP(4) + (FromDIP(MONITOR_BOTTOM) - FromDIP(4)) / 2;
         }
 
-        /* The screen filter button, at the left of the chin (the power LED is at the right). */
-        wxRect ButtonRect() const {
+        /* The buttons, at the left of the chin (the power LED is at the right): the screen
+           filter, then the CRT effect. Each is a pill with a swatch or LED and a label. */
+        wxRect ButtonRect(int button) const {
                 if (!ShowsBezel())
                         return wxRect();
                 wxRect screen = ScreenRect();
                 int h = FromDIP(MONITOR_BUTTON_HEIGHT);
-                wxSize text = GetTextExtent("Colour");
-                int w = FromDIP(6) + h / 2 + FromDIP(5) + text.x + FromDIP(8);
-                return wxRect(screen.x, ChinCentre(screen) - h / 2, w, h);
+                int filter_w = FromDIP(6) + h / 2 + FromDIP(5) + GetTextExtent("Colour").x + FromDIP(8);
+                wxRect r(screen.x, ChinCentre(screen) - h / 2, filter_w, h);
+                if (button == BUTTON_CRT) {
+                        r.x += filter_w + FromDIP(6);
+                        r.width = FromDIP(6) + h / 2 + FromDIP(5) + GetTextExtent("CRT").x + FromDIP(8);
+                }
+                return r;
+        }
+
+        /* Draws a button's pill and label; returns the centre of its swatch. */
+        wxPoint2DDouble DrawButton(wxGraphicsContext *gc, int button, const char *label) {
+                wxRect r = ButtonRect(button);
+                bool hot = hover == button;
+                gc->SetPen(wxPen(hot ? wxColour(120, 120, 128) : wxColour(28, 28, 30)));
+                gc->SetBrush(wxBrush(hot ? wxColour(70, 70, 76) : wxColour(48, 48, 52)));
+                gc->DrawRoundedRectangle(r.x, r.y, r.width, r.height, r.height / 2.0);
+                double sr = r.height / 4.0;
+                wxPoint2DDouble c(r.x + FromDIP(6) + sr, r.y + r.height / 2.0);
+                gc->SetFont(GetFont(), hot ? wxColour(225, 225, 230) : wxColour(170, 170, 176));
+                double tw, th;
+                gc->GetTextExtent(label, &tw, &th);
+                gc->DrawText(label, c.m_x + sr + FromDIP(5), c.m_y - th / 2);
+                return c;
         }
 
         wxRect ScreenRect() const {
@@ -439,12 +486,9 @@ class MonitorPanel : public wxPanel {
                 int chin_y = ChinCentre(screen);
 
                 /* screen filter button: a swatch of the filter's colour and its name */
-                wxRect button = ButtonRect();
-                gc->SetPen(wxPen(button_hover ? wxColour(120, 120, 128) : wxColour(28, 28, 30)));
-                gc->SetBrush(wxBrush(button_hover ? wxColour(70, 70, 76) : wxColour(48, 48, 52)));
-                gc->DrawRoundedRectangle(button.x, button.y, button.width, button.height, button.height / 2.0);
-                double sr = button.height / 4.0;
-                double sx = button.x + FromDIP(6) + sr, sy = button.y + button.height / 2.0;
+                double sr = FromDIP(MONITOR_BUTTON_HEIGHT) / 4.0;
+                wxPoint2DDouble swatch = DrawButton(gc, BUTTON_FILTER, screen_filters[filter].badge);
+                double sx = swatch.m_x, sy = swatch.m_y;
                 if (filter == VIDEO_FILTER_COLOR) {
                         static const wxColour rgb[3] = {wxColour(230, 60, 60), wxColour(60, 200, 60), wxColour(70, 110, 240)};
                         gc->SetPen(*wxTRANSPARENT_PEN);
@@ -461,10 +505,13 @@ class MonitorPanel : public wxPanel {
                         gc->SetBrush(wxBrush(screen_filters[filter].swatch));
                         gc->DrawEllipse(sx - sr, sy - sr, 2 * sr, 2 * sr);
                 }
-                gc->SetFont(GetFont(), button_hover ? wxColour(225, 225, 230) : wxColour(170, 170, 176));
-                double bw, bh;
-                gc->GetTextExtent(screen_filters[filter].badge, &bw, &bh);
-                gc->DrawText(screen_filters[filter].badge, sx + sr + FromDIP(5), sy - bh / 2);
+
+                /* CRT button: an LED that is lit while the effect is on */
+                wxPoint2DDouble led_c = DrawButton(gc, BUTTON_CRT, "CRT");
+                wxColour crt_led = crt ? wxColour(90, 200, 255) : wxColour(70, 70, 74);
+                gc->SetPen(wxPen(crt_led.ChangeLightness(60)));
+                gc->SetBrush(wxBrush(crt_led));
+                gc->DrawEllipse(led_c.m_x - sr, led_c.m_y - sr, 2 * sr, 2 * sr);
 
                 wxFont font = GetFont().Bold();
                 gc->SetFont(font, wxColour(150, 150, 156));
@@ -558,6 +605,7 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
         monitor = new MonitorPanel(this);
         monitor->SetBezel(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", 1) != 0);
         monitor->SetFilter(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "screen_filter", VIDEO_FILTER_COLOR));
+        monitor->SetCrt(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "crt_effect", 0) != 0);
         canvas = monitor->Canvas();
         canvas->SetBackgroundStyle(wxBG_STYLE_PAINT);
         canvas->SetBackgroundColour(*wxBLACK);
@@ -722,6 +770,7 @@ void DisplayFrame::BuildPanelsMenu() {
         wxMenu *filters = new wxMenu();
         append_filter_items(filters, monitor->GetFilter());
         panels_menu->AppendSubMenu(filters, "Screen &filter");
+        panels_menu->AppendCheckItem(ID_CRT_EFFECT, "&CRT effect");
         panels_menu->Append(ID_RESET_LAYOUT, "&Reset layout");
         UpdatePanelsMenu();
 }
@@ -736,6 +785,7 @@ void DisplayFrame::UpdatePanelsMenu() {
         }
         panels_menu->Check(ID_MONITOR_FRAME, monitor->HasBezel());
         panels_menu->Check(ID_FILTER_FIRST + monitor->GetFilter(), true);
+        panels_menu->Check(ID_CRT_EFFECT, monitor->GetCrt());
 }
 
 bool DisplayFrame::HandlePanelsMenu(int id) {
@@ -755,6 +805,10 @@ bool DisplayFrame::HandlePanelsMenu(int id) {
         }
         if (id >= ID_FILTER_FIRST && id <= ID_FILTER_LAST) {
                 monitor->SetFilter(id - ID_FILTER_FIRST);
+                return true;
+        }
+        if (id == ID_CRT_EFFECT) {
+                monitor->SetCrt(!monitor->GetCrt());
                 return true;
         }
         if (id == ID_RESET_LAYOUT) {
@@ -825,6 +879,7 @@ void DisplayFrame::SaveWindowConfig() {
         wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "maximized", maximized);
         wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", f->monitor->HasBezel());
         wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "screen_filter", f->monitor->GetFilter());
+        wx_config_set_int(CFG_MACHINE, WINDOW_SECTION, "crt_effect", f->monitor->GetCrt());
         write_layout(f->CurrentLayout());
 }
 

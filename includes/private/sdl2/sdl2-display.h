@@ -20,6 +20,9 @@ int display_host_mouse_buttons();
 #define VIDEO_FILTER_AMBER 3
 void video_set_color_filter(int filter);
 int video_get_color_filter();
+/* Scanlines, a softer picture and darker edges, as on a CRT; combines with the filter. */
+void video_set_crt_effect(int on);
+int video_get_crt_effect();
 
 #ifdef __cplusplus
 }
