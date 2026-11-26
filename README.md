@@ -7,6 +7,69 @@ Sarah Walker and Contributors.
 
 MetaPC is an independent project and is not affiliated with or endorsed by the PCem project.
 
+![Alley Cat running in MetaPC with the green phosphor filter and the CRT effect](docs/screenshots/alley-cat-green-crt.png)
+
+## What's New in MetaPC
+MetaPC keeps PCem's emulation core and adds a new interface and several features on top of it.
+
+### Machine Manager
+![The MetaPC machine manager](docs/screenshots/machine-manager.png)
+
+The configuration selection dialog is replaced by a machine manager in the style of VirtualBox:
+- A list of machines with their state (powered off, starting, running) and a details pane that
+  summarises each machine's hardware.
+- New, Settings, Start, Stop, Clone, Rename and Delete commands, plus the host network settings.
+- The manager stays open while machines run. Each machine runs in its own process, so several
+  machines can run at once, and a machine that is already running cannot be started twice.
+- **Stop** force-stops a machine that no longer responds, after asking first (its unsaved state is lost).
+
+### Machine Window
+![A machine running Alley Cat, with its dockable panels](docs/screenshots/machine-window.png)
+
+- The emulated screen can be drawn inside a monitor frame, surrounded by dockable panels that can
+  be moved, floated or hidden from the **Panels** menu:
+  - **Machine**: model, CPU, memory, video and sound cards, state, speed and a speed graph.
+  - **Controls**: pause/resume, reset, Ctrl+Alt+Del, screenshot, fullscreen, shut down, speed and turbo.
+  - One panel per floppy drive, CD-ROM, ZIP drive and the hard disks, with activity LEDs, load/eject,
+    recently used images and drag and drop.
+- The panel layout and the window position are saved per machine. Fullscreen hides the panels.
+- **Screen filters**: a button on the monitor frame switches between colour (no filter), black and
+  white, green phosphor and amber phosphor.
+- **CRT effect**: a second button adds scanlines, a slightly softer picture and darker edges. It can
+  be combined with any screen filter. Both settings are saved per machine.
+
+### Emulation Speed
+- **System > Emulation speed** runs the whole machine (CPU, timers, clock, video) at 1x, 2x, 4x, 8x
+  or unlimited speed.
+- **Turbo** (Ctrl+Alt+Home) runs at unlimited speed until it is pressed again. Sound is muted
+  while the machine runs faster than real time.
+
+### Drive Sounds
+A new **Drive sounds** device (Sound tab) plays the noises of the drives. They are synthesised, not
+recorded samples:
+- Floppy drives: motor, disk friction, head steps, head load and disk insertion, with 5.25" and
+  3.5" profiles.
+- Hard disks: spin-up, spindle hum and seeks, from old stepper motor MFM drives to 7200 RPM drives.
+  The profile is chosen from the controller and the disk size.
+- CD/DVD drives: spin-up/spin-down, seeks, tray and audio playback, chosen from the drive model and speed.
+
+### Host CD/DVD Drives
+- The host's optical drives are listed with their vendor and model, and the list is refreshed when
+  a drive is plugged in or removed (also from **CD-ROM > Refresh host drives**).
+- The selected drive is found again at start even if its drive letter changed.
+- A new **PCemDVD (DVD-ROM)** drive model, and support for DVD images larger than 4 GB.
+
+### Other Changes
+- **Random MAC address**: a dice button next to the MAC address field generates a new address.
+- **Logs in every build**: each process writes a log in the `logs` folder of the data directory
+  (`<machine>.log`, or `manager.log` for the manager), so a machine that hangs leaves a trace.
+- The memory amount is kept when the machine model changes (an XT's 640 KB no longer becomes 640 MB).
+- Fixed a hang when starting a machine with an IBM PC Fixed Disk Adapter (Xebec) or DTC 5150X hard
+  disk controller.
+
+Internal names are unchanged so existing setups keep working: the executable is still `pcem`, the
+data folder is still `~/.pcem` and the plugin API is the same.
+
 ## AI Use
 Much of the code added in MetaPC was written with Claude (an AI model made by Anthropic), under
 Pedro A. Pelaez's direction and testing. PCem does not accept AI generated or assisted code, so
@@ -24,7 +87,7 @@ Issues and pull requests go to [PSF1/metapc](https://github.com/PSF1/metapc), no
 ## How to Build
 You will need the following libraries and buildtools (and their dependencies):
 - SDL2
-- wxWidgets 3.x
+- wxWidgets 3.x (including the aui component)
 - OpenAL
 - CMake
 - ALSA (Linux only)
