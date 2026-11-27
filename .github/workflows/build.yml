@@ -1,8 +1,10 @@
 # Builds MetaPC for every supported platform and uploads one package per
 # platform as a workflow artifact:
-#   - Linux:   AppImage built on Ubuntu 20.04, runs on Ubuntu 20.04 and newer.
-#   - Windows: zip with pcem.exe and the MSYS2 UCRT64 DLLs it needs.
-#   - macOS:   zip with MetaPC.app (Apple Silicon, ad-hoc signed).
+#   - Linux x86_64 and aarch64: AppImage built on Ubuntu 20.04, runs on
+#     Ubuntu 20.04 and newer.
+#   - Windows x64 (MSYS2 UCRT64) and arm64 (MSYS2 CLANGARM64): zip with
+#     pcem.exe and the DLLs it needs.
+#   - macOS arm64: zip with MetaPC.app (ad-hoc signed).
 name: Build
 
 on:
@@ -23,8 +25,20 @@ env:
 
 jobs:
   linux:
-    name: Linux x86_64 (AppImage, Ubuntu 20.04+)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            # GCC 9 does not know -march=x86-64-v2 (GCC 11+); nehalem
+            # enables the same instruction set (SSE4.2, POPCNT, CX16).
+            march: nehalem -mtune=generic
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            march: ''
+    name: Linux ${{ matrix.arch }} (AppImage, Ubuntu 20.04+)
+    runs-on: ${{ matrix.runner }}
     # Building on Ubuntu 20.04 sets the glibc baseline to 2.31. Ubuntu 20.04
     # only ships wxWidgets 3.0, which is too old, so wxWidgets 3.2 is built
     # from source and linked statically.
@@ -34,6 +48,8 @@ jobs:
       APPIMAGE_EXTRACT_AND_RUN: 1
       WX_VERSION: 3.2.6
       CMAKE_VERSION: 3.31.6
+      ARCH: ${{ matrix.arch }}
+      MARCH: ${{ matrix.march }}
     defaults:
       run:
         shell: bash
@@ -48,7 +64,7 @@ jobs:
             libasound2-dev libgl1-mesa-dev libglu1-mesa-dev \
             desktop-file-utils squashfs-tools
           curl -fsSL -o /tmp/cmake.tar.gz \
-            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz"
+            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${ARCH}.tar.gz"
           mkdir -p /opt/cmake
           tar -xzf /tmp/cmake.tar.gz -C /opt/cmake --strip-components=1
           echo "/opt/cmake/bin" >> "$GITHUB_PATH"
@@ -63,7 +79,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/wx
-          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-v1
+          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-${{ matrix.arch }}-v1
 
       - name: Build wxWidgets
         if: steps.wxcache.outputs.cache-hit != 'true'
@@ -82,12 +98,13 @@ jobs:
       - name: Configure
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # GCC 9 does not know -march=x86-64-v2 (GCC 11+); nehalem enables
-          # the same instruction set (SSE4.2, POPCNT, CX16).
-          cmake -S . -B build -G Ninja \
+          EXTRA_ARGS=()
+          if [ -n "$MARCH" ]; then
+            EXTRA_ARGS+=("-DPCEM_MARCH=$MARCH")
+          fi
+          cmake -S . -B build -G Ninja "${EXTRA_ARGS[@]}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            "-DPCEM_MARCH=nehalem -mtune=generic" \
             -DwxWidgets_CONFIG_EXECUTABLE=/opt/wx/bin/wx-config \
             -DPCEM_VERSION_STRING="$VERSION build ${GITHUB_SHA::8}"
 
@@ -98,7 +115,7 @@ jobs:
         run: |
           DESTDIR="$PWD/AppDir" ninja -C build install
           curl -fsSL -o linuxdeploy \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage
           curl -fsSL -o linuxdeploy-plugin-gtk.sh \
             https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
           chmod +x linuxdeploy linuxdeploy-plugin-gtk.sh
@@ -116,12 +133,22 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MetaPC-${{ env.VERSION }}-Linux-x86_64-${{ github.run_number }}
+          name: MetaPC-${{ env.VERSION }}-Linux-${{ matrix.arch }}-${{ github.run_number }}
           path: artifacts/*.AppImage
 
   windows:
-    name: Windows x64 (MSYS2 UCRT64)
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            msystem: UCRT64
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+    name: Windows ${{ matrix.arch }} (MSYS2 ${{ matrix.msystem }})
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         shell: msys2 {0}
@@ -135,7 +162,7 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: ${{ matrix.msystem }}
           release: false
           update: false
           pacboy: >-
@@ -165,17 +192,17 @@ jobs:
         run: |
           ninja -C build install
           mkdir -p artifacts
-          ARCHIVE="$(pwd)/artifacts/MetaPC-$VERSION-Windows-x64-${GITHUB_SHA::8}.zip"
+          ARCHIVE="$(pwd)/artifacts/MetaPC-$VERSION-Windows-${{ matrix.arch }}-${GITHUB_SHA::8}.zip"
           cd dist
           ntldd -R "bin/pcem.exe" | sed -e 's/^[[:blank:]]*//g' | cut -d ' ' -f 3 \
-            | grep -E -i '(mingw|clang|ucrt)(32|64)' | sed -e 's|\\|/|g' \
+            | grep -E -i '(mingw32|mingw64|ucrt64|clang64|clangarm64)' | sed -e 's|\\|/|g' \
             | xargs -r cp --target-directory="bin"
           zip -r -9 "$ARCHIVE" *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MetaPC-${{ env.VERSION }}-Windows-x64-${{ github.run_number }}
+          name: MetaPC-${{ env.VERSION }}-Windows-${{ matrix.arch }}-${{ github.run_number }}
           path: artifacts/*.zip
 
   macos:
