@@ -106,10 +106,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DwxWidgets_CONFIG_EXECUTABLE=/opt/wx/bin/wx-config \
+            -DwxWidgets_wxrc_EXECUTABLE=/opt/wx/bin/wxrc \
             -DPCEM_VERSION_STRING="$VERSION build ${GITHUB_SHA::8}"
 
       - name: Build
-        run: ninja -C build
+        run: ninja -C build -k 0
 
       - name: Package
         run: |
@@ -186,7 +187,7 @@ jobs:
             -DPCEM_VERSION_STRING="$VERSION build ${GITHUB_SHA::8}"
 
       - name: Build
-        run: ninja -C build
+        run: ninja -C build -k 0
 
       - name: Package
         run: |
@@ -225,7 +226,7 @@ jobs:
             -DPCEM_VERSION_STRING="$VERSION build ${GITHUB_SHA::8}"
 
       - name: Build
-        run: ninja -C build
+        run: ninja -C build -k 0
 
       - name: Package
         run: |

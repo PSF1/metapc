@@ -1,5 +1,6 @@
 /*Win32 CD-ROM support via IOCTL*/
 
+#include <stddef.h>
 #include <windows.h>
 #include <io.h>
 #ifdef __MINGW64_VERSION_MAJOR

@@ -1,5 +1,7 @@
 /*Enumeration of the host's physical optical drives (internal or external/USB)*/
 
+#include <stddef.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <winioctl.h>
