@@ -69,11 +69,22 @@ recorded samples:
   with a **Copy** button, to enter the same values in the BIOS of the real machine.
 - On Windows, writing to a card needs administrator rights. MetaPC does not need to run as
   administrator: a machine that uses a card asks for permission (the Windows UAC prompt) when it
-  starts, and only that machine's process gets it. The disk that holds the operating system and
-  fixed internal disks are never offered.
+  starts, and only that machine's process gets it. If the prompt is declined, the machine starts
+  anyway and reports that it cannot open the card.
+- If the Windows user is not an administrator, the prompt asks for another account's password and the
+  machine runs as that account. It still uses the user's own data folder (ROMs, settings, CMOS), and
+  if that account cannot read the folder it says so before the emulator starts.
+- The machine manager still shows a machine running with administrator rights as running, and **Stop**
+  asks for permission to force-stop it when needed.
+- On Linux the card is opened as `/dev/sdX` or `/dev/mmcblkN` (the user needs read and write access to the device, for
+  example through the `disk` group). A card that is mounted is refused: unmount it first. Cards are
+  not supported on macOS yet.
+- The disk that holds the operating system and fixed internal disks are never offered, and are refused
+  even if they are typed in by hand.
 
 ### Other Changes
 - **Random MAC address**: a dice button next to the MAC address field generates a new address.
+- **`--data-dir <folder>`** command-line option: uses the given data folder instead of the usual one.
 - **Logs in every build**: each process writes a log in the `logs` folder of the data directory
   (`<machine>.log`, or `manager.log` for the manager), so a machine that hangs leaves a trace.
 - The memory amount is kept when the machine model changes (an XT's 640 KB no longer becomes 640 MB).
@@ -82,6 +93,16 @@ recorded samples:
 
 Internal names are unchanged so existing setups keep working: the executable is still `pcem`, the
 data folder is still `~/.pcem` and the plugin API is the same.
+
+## Downloads
+Ready-to-run packages are published on the [releases page](https://github.com/PSF1/metapc/releases):
+- **Linux** x86_64 and aarch64: an AppImage that runs on Ubuntu 20.04 and newer (and other
+  distributions of the same age or newer).
+- **Windows** x64 and arm64: a zip with `pcem.exe` and the DLLs it needs.
+- **macOS** arm64 (Apple Silicon): a zip with `MetaPC.app`. It is not notarised, so the first time it
+  has to be opened with right click > **Open**.
+
+Each push to the repository also builds these packages as workflow artifacts in GitHub Actions.
 
 ## AI Use
 Much of the code added in MetaPC was written with Claude (an AI model made by Anthropic), under
@@ -158,8 +179,6 @@ well. It is also possible they may not even build.
   -DUSE_EXPERIMENTAL_PGC=ON       : Build MetaPC with Professional Graphics Controller support.
   -DUSE_EXPERIMENTAL_PRINTER=ON   : Build MetaPC with Printer support. Requires freetype.
 ``` 
-
-CD-ROM support currently only accesses `/dev/cdrom`. It has not been heavily tested.
 
 On Windows, if you want to use PCAP networking, you will need to install [npcap](https://npcap.com) and replace the libpcap.dll in the MetaPC dir using the wpcap.dll installed in C:\Windows\System32  
 
