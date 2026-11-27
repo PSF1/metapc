@@ -82,9 +82,12 @@ jobs:
       - name: Configure
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # GCC 9 does not know -march=x86-64-v2 (GCC 11+); nehalem enables
+          # the same instruction set (SSE4.2, POPCNT, CX16).
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
+            "-DPCEM_MARCH=nehalem -mtune=generic" \
             -DwxWidgets_CONFIG_EXECUTABLE=/opt/wx/bin/wx-config \
             -DPCEM_VERSION_STRING="$VERSION build ${GITHUB_SHA::8}"
 
