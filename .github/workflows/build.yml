@@ -41,7 +41,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     # Building on Ubuntu 20.04 sets the glibc baseline to 2.31. Ubuntu 20.04
     # only ships wxWidgets 3.0, which is too old, so wxWidgets 3.2 is built
-    # from source and linked statically.
+    # from source and linked statically. HTML support is left out: MetaPC
+    # does not use it, and the static XRC library would otherwise need it.
     container: ubuntu:20.04
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -79,7 +80,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/wx
-          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-${{ matrix.arch }}-v1
+          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-${{ matrix.arch }}-v2
 
       - name: Build wxWidgets
         if: steps.wxcache.outputs.cache-hit != 'true'
@@ -91,7 +92,7 @@ jobs:
           cd /tmp/wxsrc
           ./configure --prefix=/opt/wx --disable-shared --with-gtk=3 \
             --disable-sys-libs --without-libnotify --disable-webview \
-            --disable-mediactrl --without-opengl
+            --disable-mediactrl --without-opengl --disable-html
           make -j"$(nproc)"
           make install
 
