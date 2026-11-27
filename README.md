@@ -35,7 +35,9 @@ The configuration selection dialog is replaced by a machine manager in the style
 - The panel layout and the window position are saved per machine. Fullscreen hides the panels.
 - **Screen filters**: a button on the monitor frame switches between colour (no filter), black and
   white, green phosphor and amber phosphor.
-- **CRT effect**: a second button adds scanlines, a slightly softer picture and darker edges. It can
+- **CRT effect**: a second button adds scanlines, a slightly softer picture and darker edges. It
+  offers a preset for each era of monitors, since later monitors had finer dot pitches and fainter
+  scanlines: early (MDA, CGA), EGA / first VGA, VGA (386 and 486) and late SVGA (Pentium). It can
   be combined with any screen filter. Both settings are saved per machine.
 
 ### Emulation Speed

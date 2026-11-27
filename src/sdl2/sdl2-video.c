@@ -242,10 +242,12 @@ void video_set_color_filter(int filter) {
 
 int video_get_color_filter() { return color_filter; }
 
-void video_set_crt_effect(int on) {
+void video_set_crt_effect(int preset) {
+        if (preset < VIDEO_CRT_OFF || preset > VIDEO_CRT_LAST)
+                preset = VIDEO_CRT_OFF;
         if (blitMutex)
                 SDL_LockMutex(blitMutex);
-        crt_effect = on ? 1 : 0;
+        crt_effect = preset;
         if (blitMutex) {
                 refilter_screen();
                 SDL_UnlockMutex(blitMutex);
@@ -255,29 +257,45 @@ void video_set_crt_effect(int on) {
 int video_get_crt_effect() { return crt_effect; }
 
 /* CRT effect: brightness per column and per row, in 1/256ths. Rows alternate between a lit
-   scanline and the darker gap between scanlines; both fall off towards the edges (vignette). */
-#define CRT_GAP 150     /* brightness of the gap between scanlines */
-#define CRT_EDGE 200    /* brightness at the edges of the screen */
-#define CRT_BOOST 280   /* the lit lines, a little brighter to make up for the gaps */
-static int crt_w = 0, crt_h = 0;
+   scanline and the darker gap between scanlines; both fall off towards the edges (vignette).
+   Each preset sets how dark the gaps are, how much the lit lines are boosted to make up for
+   them, how dark the edges get and how much the beam spreads horizontally. */
+typedef struct crt_preset_t {
+        int gap;   /* brightness of the gap between scanlines */
+        int boost; /* the lit lines, a little brighter to make up for the gaps */
+        int edge;  /* brightness at the edges of the screen */
+        int blur;  /* 0: sharp, 1: light, 2: soft */
+} crt_preset_t;
+
+static const crt_preset_t crt_presets[VIDEO_CRT_LAST + 1] = {
+        {256, 256, 256, 0}, /* off */
+        {150, 280, 200, 2}, /* early */
+        {185, 275, 215, 2}, /* EGA */
+        {215, 268, 228, 1}, /* VGA */
+        {238, 262, 240, 0}, /* late SVGA */
+};
+
+static int crt_w = 0, crt_h = 0, crt_built = -1;
 static uint16_t crt_col[2048];
 static uint16_t crt_row[2048];
 
-static int crt_falloff(int i, int n) {
-        /* 256 in the middle, CRT_EDGE at the edges, quadratic */
+static int crt_falloff(int i, int n, int edge) {
+        /* 256 in the middle, edge at the edges, quadratic */
         double d = n > 1 ? (2.0 * i / (n - 1) - 1.0) : 0.0;
-        return 256 - (int)((256 - CRT_EDGE) * d * d);
+        return 256 - (int)((256 - edge) * d * d);
 }
 
-static void build_crt_tables(int w, int h) {
-        if (w == crt_w && h == crt_h)
+static void build_crt_tables(int w, int h, int preset) {
+        if (w == crt_w && h == crt_h && preset == crt_built)
                 return;
+        const crt_preset_t *c = &crt_presets[preset];
         crt_w = w;
         crt_h = h;
+        crt_built = preset;
         for (int x = 0; x < w && x < 2048; x++)
-                crt_col[x] = crt_falloff(x, w);
+                crt_col[x] = crt_falloff(x, w, c->edge);
         for (int y = 0; y < h && y < 2048; y++)
-                crt_row[y] = crt_falloff(y, h) * ((y & 1) ? CRT_GAP : CRT_BOOST) / 256;
+                crt_row[y] = crt_falloff(y, h, c->edge) * ((y & 1) ? c->gap : c->boost) / 256;
 }
 
 /* Scales each channel of p by f/256, saturating. */
@@ -307,19 +325,24 @@ static VIDEO_BITMAP *apply_color_filter(VIDEO_BITMAP *src, SDL_Rect rect) {
         int y2 = rect.y + rect.h > src->h ? src->h : rect.y + rect.h;
         int w = blit_rect.w > 0 ? blit_rect.w : x2;
         int h = blit_rect.h > 0 ? blit_rect.h : y2;
+        int blur = crt_presets[crt].blur;
         if (crt)
-                build_crt_tables(w, h);
+                build_crt_tables(w, h, crt);
         for (int y = y1; y < y2; y++) {
                 uint32_t *in = (uint32_t *)src->line[y];
                 uint32_t *out = (uint32_t *)screen_filtered->line[y];
                 int row = (crt && y < 2048) ? crt_row[y] : 256;
                 for (int x = x1; x < x2; x++) {
                         uint32_t p = in[x];
-                        if (crt) {
+                        if (blur) {
                                 /* the beam spreads a little: soften horizontally */
                                 uint32_t l = in[x > 0 ? x - 1 : x];
                                 uint32_t r = in[x + 1 < w ? x + 1 : x];
-                                p = (p & 0xff000000) + ((p & 0xfefefe) >> 1) + ((l & 0xfcfcfc) >> 2) + ((r & 0xfcfcfc) >> 2);
+                                if (blur == 2)
+                                        p = (p & 0xff000000) + ((p & 0xfefefe) >> 1) + ((l & 0xfcfcfc) >> 2) + ((r & 0xfcfcfc) >> 2);
+                                else
+                                        p = (p & 0xff000000) + ((p & 0xfcfcfc) >> 2) * 3 + ((l & 0xf8f8f8) >> 3) +
+                                            ((r & 0xf8f8f8) >> 3);
                         }
                         if (color_filter != VIDEO_FILTER_COLOR) {
                                 /* Rec. 601 luma */

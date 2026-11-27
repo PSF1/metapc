@@ -224,7 +224,8 @@ static const double PI = 3.14159265358979;
 enum {
         ID_FILTER_FIRST = wxID_HIGHEST + 6100,
         ID_FILTER_LAST = ID_FILTER_FIRST + VIDEO_FILTER_AMBER,
-        ID_CRT_EFFECT,
+        ID_CRT_FIRST,
+        ID_CRT_LAST = ID_CRT_FIRST + VIDEO_CRT_LAST,
 };
 
 enum { BUTTON_NONE = -1, BUTTON_FILTER, BUTTON_CRT };
@@ -248,6 +249,25 @@ static void append_filter_items(wxMenu *menu, int current) {
         menu->Check(ID_FILTER_FIRST + current, true);
 }
 
+struct CrtPreset {
+        const char *label; /* menu */
+        const char *badge; /* on the button */
+};
+
+static const CrtPreset crt_presets[] = {
+        {"&Off", "CRT"},
+        {"&Early monitor (MDA, CGA, 1981-1986)", "Early"},
+        {"&EGA / first VGA (1986-1990)", "EGA"},
+        {"&VGA (386, 486: 1990-1995)", "VGA"},
+        {"&SVGA, fine dot pitch (Pentium: 1995-2000)", "SVGA"},
+};
+
+static void append_crt_items(wxMenu *menu, int current) {
+        for (int i = 0; i <= VIDEO_CRT_LAST; i++)
+                menu->AppendRadioItem(ID_CRT_FIRST + i, crt_presets[i].label);
+        menu->Check(ID_CRT_FIRST + current, true);
+}
+
 /* The centre pane: draws a monitor around the canvas SDL renders into. With a fixed-size
    display (the default "Original" resolution) the screen keeps its size and the monitor sits
    centred on the desk; with a resizable display the screen fills the pane. */
@@ -256,7 +276,7 @@ class MonitorPanel : public wxPanel {
         MonitorPanel(wxWindow *parent)
                 : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE), bezel(true), fullscreen(false),
                   top_inset(0), screen_size(wxDefaultSize), power(EMULATION_STOPPED), filter(VIDEO_FILTER_COLOR),
-                  crt(false), hover(BUTTON_NONE) {
+                  crt(VIDEO_CRT_OFF), hover(BUTTON_NONE) {
                 SetBackgroundStyle(wxBG_STYLE_PAINT);
                 canvas = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(640, 480), wxWANTS_CHARS);
                 Bind(wxEVT_PAINT, &MonitorPanel::OnPaint, this);
@@ -264,9 +284,12 @@ class MonitorPanel : public wxPanel {
                 Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent &event) { SetHover(BUTTON_NONE); });
                 Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent &event) {
                         int hit = HitButton(event.GetPosition());
-                        if (hit == BUTTON_CRT)
-                                SetCrt(!crt);
-                        else if (hit == BUTTON_FILTER) {
+                        if (hit == BUTTON_CRT) {
+                                wxRect button = ButtonRect(BUTTON_CRT);
+                                wxMenu popup;
+                                append_crt_items(&popup, crt);
+                                PopupMenu(&popup, button.GetLeft(), button.GetBottom() + 1);
+                        } else if (hit == BUTTON_FILTER) {
                                 wxRect button = ButtonRect(BUTTON_FILTER);
                                 wxMenu popup;
                                 append_filter_items(&popup, filter);
@@ -276,6 +299,9 @@ class MonitorPanel : public wxPanel {
                 Bind(
                         wxEVT_MENU, [this](wxCommandEvent &event) { SetFilter(event.GetId() - ID_FILTER_FIRST); }, ID_FILTER_FIRST,
                         ID_FILTER_LAST);
+                Bind(
+                        wxEVT_MENU, [this](wxCommandEvent &event) { SetCrt(event.GetId() - ID_CRT_FIRST); }, ID_CRT_FIRST,
+                        ID_CRT_LAST);
                 Bind(wxEVT_SIZE, [this](wxSizeEvent &event) {
                         PlaceCanvas();
                         Refresh();
@@ -324,11 +350,13 @@ class MonitorPanel : public wxPanel {
                         Refresh();
         }
 
-        bool GetCrt() const { return crt; }
+        int GetCrt() const { return crt; }
 
-        void SetCrt(bool on) {
-                crt = on;
-                video_set_crt_effect(on);
+        void SetCrt(int preset) {
+                if (preset < VIDEO_CRT_OFF || preset > VIDEO_CRT_LAST)
+                        preset = VIDEO_CRT_OFF;
+                crt = preset;
+                video_set_crt_effect(preset);
                 UpdateToolTip();
                 if (ShowsBezel())
                         Refresh();
@@ -350,7 +378,7 @@ class MonitorPanel : public wxPanel {
         wxSize screen_size;
         int power;
         int filter;
-        bool crt;
+        int crt;
         int hover;
 
         bool ShowsBezel() const { return bezel && !fullscreen; }
@@ -360,8 +388,11 @@ class MonitorPanel : public wxPanel {
                         wxString label = screen_filters[filter].label;
                         label.Replace("&", "");
                         SetToolTip("Screen filter: " + label);
-                } else if (hover == BUTTON_CRT)
-                        SetToolTip(crt ? "CRT effect: on" : "CRT effect: off");
+                } else if (hover == BUTTON_CRT) {
+                        wxString label = crt_presets[crt].label;
+                        label.Replace("&", "");
+                        SetToolTip("CRT effect: " + label);
+                }
                 else
                         UnsetToolTip();
         }
@@ -398,7 +429,10 @@ class MonitorPanel : public wxPanel {
                 wxRect r(screen.x, ChinCentre(screen) - h / 2, filter_w, h);
                 if (button == BUTTON_CRT) {
                         r.x += filter_w + FromDIP(6);
-                        r.width = FromDIP(6) + h / 2 + FromDIP(5) + GetTextExtent("CRT").x + FromDIP(8);
+                        int text_w = 0;
+                        for (int i = 0; i <= VIDEO_CRT_LAST; i++)
+                                text_w = std::max(text_w, GetTextExtent(crt_presets[i].badge).x);
+                        r.width = FromDIP(6) + h / 2 + FromDIP(5) + text_w + FromDIP(8);
                 }
                 return r;
         }
@@ -506,8 +540,8 @@ class MonitorPanel : public wxPanel {
                         gc->DrawEllipse(sx - sr, sy - sr, 2 * sr, 2 * sr);
                 }
 
-                /* CRT button: an LED that is lit while the effect is on */
-                wxPoint2DDouble led_c = DrawButton(gc, BUTTON_CRT, "CRT");
+                /* CRT button: the preset's name, and an LED that is lit while the effect is on */
+                wxPoint2DDouble led_c = DrawButton(gc, BUTTON_CRT, crt_presets[crt].badge);
                 wxColour crt_led = crt ? wxColour(90, 200, 255) : wxColour(70, 70, 74);
                 gc->SetPen(wxPen(crt_led.ChangeLightness(60)));
                 gc->SetBrush(wxBrush(crt_led));
@@ -605,7 +639,8 @@ DisplayFrame::DisplayFrame(wxWindow *owner, wxMenuBar *menubar, const char *titl
         monitor = new MonitorPanel(this);
         monitor->SetBezel(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "monitor_frame", 1) != 0);
         monitor->SetFilter(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "screen_filter", VIDEO_FILTER_COLOR));
-        monitor->SetCrt(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "crt_effect", 0) != 0);
+        /* crt_effect was once on/off; 1 is still the early preset, which is what "on" was. */
+        monitor->SetCrt(wx_config_get_int(CFG_MACHINE, WINDOW_SECTION, "crt_effect", VIDEO_CRT_OFF));
         canvas = monitor->Canvas();
         canvas->SetBackgroundStyle(wxBG_STYLE_PAINT);
         canvas->SetBackgroundColour(*wxBLACK);
@@ -770,7 +805,9 @@ void DisplayFrame::BuildPanelsMenu() {
         wxMenu *filters = new wxMenu();
         append_filter_items(filters, monitor->GetFilter());
         panels_menu->AppendSubMenu(filters, "Screen &filter");
-        panels_menu->AppendCheckItem(ID_CRT_EFFECT, "&CRT effect");
+        wxMenu *crts = new wxMenu();
+        append_crt_items(crts, monitor->GetCrt());
+        panels_menu->AppendSubMenu(crts, "&CRT effect");
         panels_menu->Append(ID_RESET_LAYOUT, "&Reset layout");
         UpdatePanelsMenu();
 }
@@ -785,7 +822,7 @@ void DisplayFrame::UpdatePanelsMenu() {
         }
         panels_menu->Check(ID_MONITOR_FRAME, monitor->HasBezel());
         panels_menu->Check(ID_FILTER_FIRST + monitor->GetFilter(), true);
-        panels_menu->Check(ID_CRT_EFFECT, monitor->GetCrt());
+        panels_menu->Check(ID_CRT_FIRST + monitor->GetCrt(), true);
 }
 
 bool DisplayFrame::HandlePanelsMenu(int id) {
@@ -807,8 +844,8 @@ bool DisplayFrame::HandlePanelsMenu(int id) {
                 monitor->SetFilter(id - ID_FILTER_FIRST);
                 return true;
         }
-        if (id == ID_CRT_EFFECT) {
-                monitor->SetCrt(!monitor->GetCrt());
+        if (id >= ID_CRT_FIRST && id <= ID_CRT_LAST) {
+                monitor->SetCrt(id - ID_CRT_FIRST);
                 return true;
         }
         if (id == ID_RESET_LAYOUT) {

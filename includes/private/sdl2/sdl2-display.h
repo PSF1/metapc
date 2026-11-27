@@ -20,8 +20,16 @@ int display_host_mouse_buttons();
 #define VIDEO_FILTER_AMBER 3
 void video_set_color_filter(int filter);
 int video_get_color_filter();
-/* Scanlines, a softer picture and darker edges, as on a CRT; combines with the filter. */
-void video_set_crt_effect(int on);
+/* Scanlines, a softer picture and darker edges, as on a CRT; combines with the filter. The
+   presets follow the monitors of each era: the later the monitor, the finer its dot pitch and
+   the fainter its scanlines. */
+#define VIDEO_CRT_OFF 0
+#define VIDEO_CRT_EARLY 1 /* MDA, CGA, early monochrome: 1981-1986 */
+#define VIDEO_CRT_EGA 2   /* EGA and the first VGA monitors: 1986-1990 */
+#define VIDEO_CRT_VGA 3   /* VGA and early SVGA: 1990-1995 */
+#define VIDEO_CRT_SVGA 4  /* late SVGA, fine dot pitch: 1995-2000 */
+#define VIDEO_CRT_LAST VIDEO_CRT_SVGA
+void video_set_crt_effect(int preset);
 int video_get_crt_effect();
 
 #ifdef __cplusplus
