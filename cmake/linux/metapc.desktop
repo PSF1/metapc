@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MetaPC
+Comment=IBM PC and compatibles emulator
+Exec=pcem
+Icon=metapc
+Categories=Game;Emulator;
+Terminal=false
