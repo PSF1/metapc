@@ -5,6 +5,9 @@
 #include "rom.h"
 #include "video.h"
 #include "xi8088.h"
+#include "model.h"
+#include "nvr.h"
+#include <string.h>
 
 static void romfread(uint8_t *buf, size_t size, size_t count, FILE *fp) {
         int result = fread(buf, size, count, fp);
@@ -52,6 +55,85 @@ static int mem_load_basic(char *path) {
         return 1;
 }
 
+char custom_bios_path[512] = "";
+char custom_bios_model[32] = "";
+
+void custom_bios_set(const char *path, const char *model_internal_name) {
+        if (!path || !path[0] || !model_internal_name || !model_internal_name[0]) {
+                custom_bios_path[0] = 0;
+                custom_bios_model[0] = 0;
+                return;
+        }
+        snprintf(custom_bios_path, sizeof(custom_bios_path), "%s", path);
+        snprintf(custom_bios_model, sizeof(custom_bios_model), "%s", model_internal_name);
+}
+
+int custom_bios_applies(int romset_id) {
+        int c;
+
+        if (!custom_bios_path[0] || !custom_bios_model[0])
+                return 0;
+        for (c = 0; models[c] != NULL; c++) {
+                if (!strcmp(models[c]->internal_name, custom_bios_model))
+                        return models[c]->id == romset_id;
+        }
+        return 0;
+}
+
+int custom_bios_active(void) { return custom_bios_applies(romset); }
+
+long custom_bios_file_size(const char *path) {
+        FILE *f = fopen(path, "rb");
+        long size;
+
+        if (!f)
+                return -1;
+        fseek(f, 0, SEEK_END);
+        size = ftell(f);
+        fclose(f);
+        return size;
+}
+
+int custom_bios_size_supported(long size) { return size == 0x10000 || size == 0x20000 || size == 0x40000; }
+
+FILE *flash_fopen(char *rel_path, char *mode) {
+        if (custom_bios_active()) {
+                /* The flash file holds the BIOS's main block too, so each BIOS image gets its own
+                   file: choosing another image later must not bring the old code back. */
+                char name[256];
+                const char *base = custom_bios_path;
+                const char *p;
+
+                for (p = custom_bios_path; *p; p++) {
+                        if (*p == '/' || *p == '\\')
+                                base = p + 1;
+                }
+                snprintf(name, sizeof(name), "flash-%s", base);
+                return nvrfopen(name, mode);
+        }
+        return romfopen(rel_path, mode);
+}
+
+/* Loads the custom BIOS image flat at the top of the ROM area, the way the models' own
+   64, 128 and 256 KB images are loaded. */
+static int load_custom_bios() {
+        long size = custom_bios_file_size(custom_bios_path);
+        FILE *f;
+
+        if (!custom_bios_size_supported(size)) {
+                pclog("Custom BIOS %s: unsupported size %ld\n", custom_bios_path, size);
+                return 0;
+        }
+        f = fopen(custom_bios_path, "rb");
+        if (!f)
+                return 0;
+        romfread(rom, size, 1, f);
+        fclose(f);
+        biosmask = size - 1;
+        pclog("Loaded custom BIOS %s (%ld KB) for model %s\n", custom_bios_path, size / 1024, custom_bios_model);
+        return 1;
+}
+
 int loadbios() {
         FILE *f = NULL, *ff = NULL;
         int c;
@@ -69,6 +151,9 @@ int loadbios() {
         memset(rom, 0xff, 0x20000);
 
         pclog("Starting with romset %i\n", romset);
+
+        if (custom_bios_active())
+                return load_custom_bios();
 
         switch (romset) {
         case ROM_PC1512:

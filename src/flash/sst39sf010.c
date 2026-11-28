@@ -2,6 +2,7 @@
 #include "ibm.h"
 #include "device.h"
 #include "mem.h"
+#include "mem_bios.h"
 #include "sst39sf010.h"
 #include "xi8088.h"
 
@@ -176,7 +177,7 @@ static void *sst_39sf010_init() {
                 fatal("sst_39sf010_init on unsupported ROM set %i\n", romset);
         }
         strcat(sst->flash_path, "flash.bin");
-        f = romfopen(sst->flash_path, "rb");
+        f = flash_fopen(sst->flash_path, "rb");
         if (f) {
                 switch (romset) {
                 case ROM_XI8088:
@@ -205,7 +206,7 @@ static void sst_39sf010_close(void *p) {
         sst_t *sst = (sst_t *)p;
 
         if (sst->dirty) {
-                FILE *f = romfopen(sst->flash_path, "wb");
+                FILE *f = flash_fopen(sst->flash_path, "wb");
                 switch (romset) {
                 case ROM_XI8088:
                         if (xi8088_bios_128kb())

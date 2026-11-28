@@ -18,6 +18,7 @@
 #include "disc.h"
 #include "disc_img.h"
 #include "mem.h"
+#include "mem_bios.h"
 #include "x86_ops.h"
 #include "codegen.h"
 #include "cdrom-null.h"
@@ -675,6 +676,8 @@ void loadconfig(char *fn) {
                 model = model_count() - 1;
 
         romset = model_getromset();
+        custom_bios_set(config_get_string(CFG_MACHINE, NULL, "custom_bios", ""),
+                        config_get_string(CFG_MACHINE, NULL, "custom_bios_model", ""));
         cpu_manufacturer = config_get_int(CFG_MACHINE, NULL, "cpu_manufacturer", 0);
         cpu = config_get_int(CFG_MACHINE, NULL, "cpu", 0);
         p = (char *)config_get_string(CFG_MACHINE, NULL, "fpu", "none");
@@ -916,6 +919,8 @@ void saveconfig(char *fn) {
         config_set_int(CFG_MACHINE, NULL, "drive_sounds", drive_sounds_enabled);
 
         config_set_string(CFG_MACHINE, NULL, "model", model_get_internal_name());
+        config_set_string(CFG_MACHINE, NULL, "custom_bios", custom_bios_path);
+        config_set_string(CFG_MACHINE, NULL, "custom_bios_model", custom_bios_model);
         config_set_int(CFG_MACHINE, NULL, "cpu_manufacturer", cpu_manufacturer);
         config_set_int(CFG_MACHINE, NULL, "cpu", cpu);
         config_set_string(CFG_MACHINE, NULL, "fpu", (char *)fpu_get_internal_name(model, cpu_manufacturer, cpu, fpu_type));

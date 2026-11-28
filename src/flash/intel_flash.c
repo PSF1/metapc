@@ -2,6 +2,7 @@
 #include "ibm.h"
 #include "device.h"
 #include "mem.h"
+#include "mem_bios.h"
 
 #define FLASH_2MBIT 4
 #define FLASH_IS_BXB 2
@@ -317,7 +318,7 @@ void *intel_flash_init(uint8_t type, uint8_t flash_id) {
 
         strcpy(fpath, flash_path);
         strcat(fpath, "flash.bin");
-        f = romfopen(fpath, "rb");
+        f = flash_fopen(fpath, "rb");
         if (f) {
                 fread(&(flash->array[flash->block_start[BLOCK_MAIN]]), flash->block_len[BLOCK_MAIN], 1, f);
                 if (type & FLASH_2MBIT)
@@ -351,7 +352,7 @@ void intel_flash_close(void *p) {
 
         strcpy(fpath, flash_path);
         strcat(fpath, "flash.bin");
-        f = romfopen(fpath, "wb");
+        f = flash_fopen(fpath, "wb");
         fwrite(&(flash->array[flash->block_start[BLOCK_MAIN]]), flash->block_len[BLOCK_MAIN], 1, f);
         if (flash->type & FLASH_2MBIT)
                 fwrite(&(flash->array[flash->block_start[BLOCK_MAIN2]]), flash->block_len[BLOCK_MAIN2], 1, f);
