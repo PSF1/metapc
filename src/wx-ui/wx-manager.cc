@@ -3,6 +3,7 @@
 #include "wx-config.h"
 #include "wx-hostconfig.h"
 #include "wx-machineinfo.h"
+#include "wx-trw.h"
 #include "wx-utils.h"
 
 #include <wx/dir.h>
@@ -29,6 +30,9 @@ extern "C" {
 #include "ibm.h"
 #include "config.h"
 #include "paths.h"
+#include "cpu.h"
+#include "mem_bios.h"
+#include "model.h"
 }
 
 /* How long a machine counts as "starting" after launch, until its process shows up as running. */
@@ -452,12 +456,102 @@ bool ManagerFrame::AskName(const wxString &title, wxString &name) {
         return false;
 }
 
+/* Asks the new machine's name and how to set it up: the classic configuration dialog, or
+   starting from a real motherboard found on The Retro Web. */
+ManagerFrame::NewMachineMode ManagerFrame::AskNewMachine(wxString &name) {
+        enum { ID_NEW_CLASSIC = wxID_HIGHEST + 4100, ID_NEW_BY_BOARD };
+
+        wxDialog dlg(this, wxID_ANY, "New machine");
+        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
+        sizer->Add(new wxStaticText(&dlg, wxID_ANY, "Enter name:"), 0, wxLEFT | wxRIGHT | wxTOP, dlg.FromDIP(12));
+        wxTextCtrl *text =
+                new wxTextCtrl(&dlg, wxID_ANY, name, wxDefaultPosition, dlg.FromDIP(wxSize(360, -1)), wxTE_PROCESS_ENTER);
+        text->SetMaxLength(64);
+        sizer->Add(text, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, dlg.FromDIP(12));
+        wxStaticText *hint = new wxStaticText(&dlg, wxID_ANY,
+                                              "Classic: choose the emulated hardware yourself.\n"
+                                              "By motherboard: search a real board on The Retro Web, check whether MetaPC can "
+                                              "emulate it, then choose the rest.");
+        hint->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+        hint->Wrap(dlg.FromDIP(360));
+        sizer->Add(hint, 0, wxLEFT | wxRIGHT | wxTOP, dlg.FromDIP(12));
+
+        wxBoxSizer *buttons = new wxBoxSizer(wxHORIZONTAL);
+        wxButton *classic = new wxButton(&dlg, ID_NEW_CLASSIC, "Classic");
+        wxButton *by_board = new wxButton(&dlg, ID_NEW_BY_BOARD, "By motherboard");
+        buttons->Add(classic, 0, wxRIGHT, dlg.FromDIP(6));
+        buttons->Add(by_board, 0, wxRIGHT, dlg.FromDIP(6));
+        buttons->Add(new wxButton(&dlg, wxID_CANCEL, "Cancel"), 0);
+        sizer->Add(buttons, 0, wxALIGN_RIGHT | wxALL, dlg.FromDIP(12));
+        dlg.SetSizerAndFit(sizer);
+        dlg.CentreOnParent();
+        classic->SetDefault();
+        text->SetFocus();
+
+        auto choose = [&](int id) {
+                wxString value = text->GetValue().Strip(wxString::both);
+                if (value.empty()) {
+                        wx_messagebox(&dlg, "Enter a name for the machine.", "New machine", wxOK);
+                        return;
+                }
+                if (value.find_first_of("/<>:\"\\|?*") != wxString::npos) {
+                        wx_simple_messagebox("Invalid name", "The following characters cannot be in the "
+                                                             "name: /, <, >, :, \", \\, |, ?, *");
+                        return;
+                }
+                if (wxFileExists(ConfigPath(value))) {
+                        wx_simple_messagebox("Already exists", "A configuration with that name already exists.");
+                        return;
+                }
+                name = value;
+                dlg.EndModal(id);
+        };
+        classic->Bind(wxEVT_BUTTON, [&](wxCommandEvent &) { choose(ID_NEW_CLASSIC); });
+        by_board->Bind(wxEVT_BUTTON, [&](wxCommandEvent &) { choose(ID_NEW_BY_BOARD); });
+        text->Bind(wxEVT_TEXT_ENTER, [&](wxCommandEvent &) { choose(ID_NEW_CLASSIC); });
+
+        int result = dlg.ShowModal();
+        return result == ID_NEW_CLASSIC ? NEW_CLASSIC : result == ID_NEW_BY_BOARD ? NEW_BY_BOARD : NEW_CANCEL;
+}
+
+/* Loads the default settings, so a new machine starts clean instead of inheriting those of
+   the machine shown last. cfg does not exist yet, so every setting takes its default. */
+static void load_default_config(const wxString &cfg) { loadconfig((char *)(const char *)cfg.mb_str()); }
+
+/* Switches the loaded configuration to another model with that model's defaults. */
+static void set_model_defaults(int new_model) {
+        model = new_model;
+        romset = model_getromset();
+        cpu_manufacturer = 0;
+        cpu = 0;
+        fpu_type = fpu_get_type(model, cpu_manufacturer, cpu, "none");
+        /* The same default and minimum loadconfig() applies; AT models count min_ram in MB. */
+        bool in_mb = (models[model]->flags & MODEL_AT) && models[model]->ram_granularity < 128;
+        int min_kb = in_mb ? models[model]->min_ram * 1024 : models[model]->min_ram;
+        mem_size = 4096 < min_kb ? min_kb : 4096;
+}
+
 void ManagerFrame::OnNew(wxCommandEvent &event) {
         wxString name;
-        if (!AskName("New machine", name))
+        NewMachineMode mode = AskNewMachine(name);
+        if (mode == NEW_CANCEL)
                 return;
 
         wxString cfg = ConfigPath(name);
+        if (mode == NEW_BY_BOARD) {
+                TrwSelection selection;
+                if (!trw_choose_motherboard(this, selection)) {
+                        UpdateDetails(true);
+                        return;
+                }
+                load_default_config(cfg);
+                set_model_defaults(selection.model);
+                custom_bios_set(selection.bios_path.empty() ? NULL : (const char *)selection.bios_path.mb_str(),
+                                models[model]->internal_name);
+                trw_save_attribution(selection.board, models[model]->internal_name);
+        } else
+                load_default_config(cfg);
+
         has_been_inited = 0;
         if (ConfigDialog::Open(this)) {
                 saveconfig((char *)(const char *)cfg.mb_str());

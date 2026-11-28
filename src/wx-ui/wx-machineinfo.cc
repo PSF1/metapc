@@ -1,10 +1,13 @@
 #include "wx-machineinfo.h"
+#include "wx-trw.h"
 
 #include <wx/filename.h>
 
 extern "C" {
 #include "ibm.h"
+#include "config.h"
 #include "cpu.h"
+#include "mem_bios.h"
 #include "fdd.h"
 #include "gameport.h"
 #include "hdd.h"
@@ -118,6 +121,8 @@ std::vector<MachineInfoSection> wx_machine_info() {
         system.items.push_back({"CPU", wx_machine_cpu_name()});
         system.items.push_back({"FPU", fpu_name()});
         system.items.push_back({"Memory", wx_machine_memory()});
+        if (custom_bios_active())
+                system.items.push_back({"BIOS", wxString(custom_bios_path)});
         system.items.push_back({"Dynamic recompiler", cpu_use_dynarec ? "Enabled" : "Disabled"});
         sections.push_back(system);
 
@@ -179,6 +184,17 @@ std::vector<MachineInfoSection> wx_machine_info() {
         ports.items.push_back({"Joystick", joystick ? wxString(joystick) : wxString("None")});
         ports.items.push_back({"LPT1", lpt1_display_name()});
         sections.push_back(ports);
+
+        char *board = config_get_string(CFG_MACHINE, (char *)TRW_CONFIG_SECTION, (char *)"board", NULL);
+        if (board && board[0]) {
+                MachineInfoSection trw = {"Motherboard source", "BITMAP_MOTHERBOARD", {}};
+                trw.items.push_back({"Board", wxString::FromUTF8(board)});
+                char *url = config_get_string(CFG_MACHINE, (char *)TRW_CONFIG_SECTION, (char *)"url", NULL);
+                if (url)
+                        trw.items.push_back({"Page", wxString::FromUTF8(url)});
+                trw.items.push_back({"Credit", "Board data from The Retro Web, " TRW_LICENSE_NAME " (" TRW_LICENSE_URL ")"});
+                sections.push_back(trw);
+        }
 
         return sections;
 }

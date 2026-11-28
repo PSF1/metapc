@@ -35,6 +35,7 @@ extern "C" {
 #include "model.h"
 #include "mouse.h"
 #include "mem.h"
+#include "mem_bios.h"
 #include "nethandler.h"
 #include "nvr.h"
 #include "scsi_cd.h"
@@ -269,8 +270,9 @@ void ConfigDialog::RecalcVidList(int model_index, bool force_builtin_video) {
 
                 if (!video_card_available(c) || !gfx_present[video_new_to_old(c)])
                         continue;
-                int dev_flags = video_card_getdevice(c, model_romset)->flags;
-                if (((model_flags & MODEL_PCI) || !(dev_flags & DEVICE_PCI)) &&
+                device_t *dev = video_card_getdevice(c, model_romset);
+                int dev_flags = dev->flags;
+                if (((model_flags & MODEL_PCI) || !(dev_flags & DEVICE_PCI)) && trw_device_fits(limits, dev) &&
                     ((model_flags & MODEL_MCA) || !(dev_flags & DEVICE_MCA)) &&
                     (!(model_flags & MODEL_MCA) || (dev_flags & DEVICE_MCA))) {
                         cb_video->Append(s);
@@ -286,8 +288,11 @@ void ConfigDialog::RecalcVidList(int model_index, bool force_builtin_video) {
         cb_video->Enable(true);
 
         btn_video_cfg->Enable(video_card_has_config(video_old_to_new(cur_gfxcard), model_romset));
-        chk_voodoo->Enable((model_flags & MODEL_PCI) != 0);
-        btn_voodoo_cfg->Enable((model_flags & MODEL_PCI) != 0);
+        bool voodoo_fits = (model_flags & MODEL_PCI) && trw_bus_fits(limits, DEVICE_PCI);
+        chk_voodoo->Enable(voodoo_fits);
+        btn_voodoo_cfg->Enable(voodoo_fits);
+        if (!voodoo_fits)
+                chk_voodoo->SetValue(false);
 }
 
 void ConfigDialog::RecalcSndList(int model_index) {
@@ -304,7 +309,8 @@ void ConfigDialog::RecalcSndList(int model_index) {
                 if (sound_card_available(c)) {
                         device_t *sound_dev = sound_card_getdevice(c);
 
-                        if (!sound_dev || (sound_dev->flags & DEVICE_MCA) == (models[model_index]->flags & MODEL_MCA)) {
+                        if (!sound_dev || ((sound_dev->flags & DEVICE_MCA) == (models[model_index]->flags & MODEL_MCA) &&
+                                           trw_device_fits(limits, sound_dev))) {
                                 cb_sound->Append(s);
                                 list_to_sound[d] = c;
                                 d++;
@@ -344,6 +350,8 @@ void ConfigDialog::RecalcHddList(int model_index, bool use_selected_hdd, bool fo
                           (!(flags & DEVICE_PS1) && models[model_index]->id == ROM_IBMPS1_2011)))
                         continue;
                 if (!hdd_controller_available(c))
+                        continue;
+                if (c && !trw_bus_fits(limits, flags))
                         continue;
 
                 cb_hdd->Append(s);
@@ -473,14 +481,20 @@ void ConfigDialog::PopulateCpuManufacturers(int model_index, int selection) {
 
 void ConfigDialog::PopulateCpus(int model_index, int manu, int selection) {
         wx_combobox_clear(cb_cpu);
-        int c = 0;
-        while (models[model_index]->cpu[manu].cpus[c].cpu_type != -1) {
-                cb_cpu->Append(models[model_index]->cpu[manu].cpus[c].name);
-                c++;
+        cpu_list_to_index.clear();
+        CPU *cpus = models[model_index]->cpu[manu].cpus;
+        /* A board from The Retro Web only takes CPUs for its bus speeds; if none fits, all are offered. */
+        for (int pass = 0; pass < 2 && cpu_list_to_index.empty(); pass++)
+                for (int c = 0; cpus[c].cpu_type != -1; c++)
+                        if (pass || trw_cpu_fits(limits, &cpus[c]))
+                                cpu_list_to_index.push_back(c);
+        int list_sel = 0;
+        for (size_t i = 0; i < cpu_list_to_index.size(); i++) {
+                cb_cpu->Append(cpus[cpu_list_to_index[i]].name);
+                if (cpu_list_to_index[i] <= selection)
+                        list_sel = i;
         }
-        if (selection >= c)
-                selection = c - 1;
-        wx_combobox_select(cb_cpu, selection);
+        wx_combobox_select(cb_cpu, list_sel);
         cb_cpu->Enable(true);
 }
 
@@ -503,6 +517,25 @@ int ConfigDialog::SelectedFpuType(int model_index, int manu, int cpu_index) {
 /* Whether the memory spinner counts this model's RAM in MB (else in KB). */
 static bool memory_in_mb(int model_index) {
         return (models[model_index]->flags & MODEL_AT) && models[model_index]->ram_granularity < 128;
+}
+
+int ConfigDialog::SelectedCpu() {
+        int sel = SelectedIndex(cb_cpu);
+        return (sel >= 0 && sel < (int)cpu_list_to_index.size()) ? cpu_list_to_index[sel] : 0;
+}
+
+/* The model's maximum memory, lowered to the board's for a machine made from a real board,
+   in the spinner's unit (MB or KB). */
+int ConfigDialog::MaxMemory(int model_index) {
+        int max = models[model_index]->max_ram;
+        if (limits.active && model_index == limits.model && limits.max_ram_kb > 0) {
+                long board = memory_in_mb(model_index) ? limits.max_ram_kb / 1024 : limits.max_ram_kb;
+                if (board < max)
+                        max = board;
+                if (max < models[model_index]->min_ram)
+                        max = models[model_index]->min_ram;
+        }
+        return max;
 }
 
 void ConfigDialog::UpdateMemoryUnit(int model_index) { text_mem_unit->SetLabel(memory_in_mb(model_index) ? "MB" : "KB"); }
@@ -528,7 +561,7 @@ void ConfigDialog::RecalcNetList(int model_index) {
 
                 device_t *dev = network_card_getdevice(c);
                 if (network_card_available(c) && (!dev || (model_flags & MODEL_PCI) || !(dev->flags & DEVICE_PCI)) &&
-                    (!dev || (dev->flags & DEVICE_MCA) == (model_flags & MODEL_MCA))) {
+                    (!dev || ((dev->flags & DEVICE_MCA) == (model_flags & MODEL_MCA) && trw_device_fits(limits, dev)))) {
                         cb_netcard->Append(s);
                         list_to_network[d] = c;
                         if (c == network_card_current) {
@@ -578,9 +611,13 @@ void ConfigDialog::InitControls() {
 
         pauseEmulation = 1;
 
+        limits = trw_load_limits();
+        if (limits.active)
+                model = limits.model;
+
         int d = 0;
         for (int c = 0; models[c] != NULL; c++) {
-                if (romspresent[models[c]->id]) {
+                if (romspresent[models[c]->id] || custom_bios_applies(models[c]->id)) {
                         cb_model->Append(models[c]->name);
                         modeltolist[c] = d;
                         listtomodel[d] = c;
@@ -593,6 +630,12 @@ void ConfigDialog::InitControls() {
         model = listtomodel[modeltolist[model]];
         romset = model_getromset();
         prev_model = model;
+        if (limits.active && model == limits.model) {
+                /* The board's BIOS only runs on this model's hardware. */
+                cb_model->Enable(false);
+                cb_model->SetToolTip("Fixed by the motherboard this machine was created from: " + limits.board);
+                SetTitle(GetTitle() + " - " + limits.board + " (The Retro Web)");
+        }
 
         int model_index = romstomodel[romset];
 
@@ -601,7 +644,7 @@ void ConfigDialog::InitControls() {
         PopulateCpuManufacturers(model_index, cpu_manufacturer);
         PopulateCpus(model_index, cpu_manufacturer, cpu);
         chk_dynarec->SetValue(cpu_use_dynarec);
-        UpdateCpuDependent(model_index, cpu_manufacturer, cpu, fpu_type);
+        UpdateCpuDependent(model_index, cpu_manufacturer, SelectedCpu(), fpu_type);
 
         RecalcSndList(model_index);
 
@@ -616,7 +659,7 @@ void ConfigDialog::InitControls() {
                 cb_video_speed->Append(video_speeds[c]);
         wx_combobox_select(cb_video_speed, video_speed + 1);
 
-        spin_mem->SetRange(models[model_index]->min_ram, models[model_index]->max_ram);
+        spin_mem->SetRange(models[model_index]->min_ram, MaxMemory(model_index));
         spin_mem->SetIncrement(models[model]->ram_granularity);
         if ((models[model]->flags & MODEL_AT) && models[model]->ram_granularity < 128)
                 spin_mem->SetValue(mem_size / 1024);
@@ -775,8 +818,8 @@ void ConfigDialog::OnModelChanged(wxCommandEvent &event) {
 
         PopulateCpuManufacturers(temp_model, SelectedIndex(cb_cpu_manu));
         int temp_cpu_m = SelectedIndex(cb_cpu_manu);
-        PopulateCpus(temp_model, temp_cpu_m, SelectedIndex(cb_cpu));
-        int temp_cpu = SelectedIndex(cb_cpu);
+        PopulateCpus(temp_model, temp_cpu_m, SelectedCpu());
+        int temp_cpu = SelectedCpu();
         UpdateCpuDependent(temp_model, temp_cpu_m, temp_cpu, SelectedFpuType(temp_model, temp_cpu_m, temp_cpu));
 
         UpdateMemoryUnit(temp_model);
@@ -787,12 +830,12 @@ void ConfigDialog::OnModelChanged(wxCommandEvent &event) {
                 mem /= 1024;
         else if (memory_in_mb(old_model) && !memory_in_mb(temp_model))
                 mem *= 1024;
-        spin_mem->SetRange(models[temp_model]->min_ram, models[temp_model]->max_ram);
+        spin_mem->SetRange(models[temp_model]->min_ram, MaxMemory(temp_model));
         mem &= ~(models[temp_model]->ram_granularity - 1);
         if (mem < models[temp_model]->min_ram)
                 mem = models[temp_model]->min_ram;
-        else if (mem > models[temp_model]->max_ram)
-                mem = models[temp_model]->max_ram;
+        else if (mem > MaxMemory(temp_model))
+                mem = MaxMemory(temp_model);
         spin_mem->SetValue(mem);
         spin_mem->SetIncrement(models[temp_model]->ram_granularity);
 
@@ -814,15 +857,15 @@ void ConfigDialog::OnModelChanged(wxCommandEvent &event) {
 void ConfigDialog::OnCpuManufacturerChanged(wxCommandEvent &event) {
         int temp_model = SelectedModel();
         int temp_cpu_m = SelectedIndex(cb_cpu_manu);
-        PopulateCpus(temp_model, temp_cpu_m, SelectedIndex(cb_cpu));
-        int temp_cpu = SelectedIndex(cb_cpu);
+        PopulateCpus(temp_model, temp_cpu_m, SelectedCpu());
+        int temp_cpu = SelectedCpu();
         UpdateCpuDependent(temp_model, temp_cpu_m, temp_cpu, SelectedFpuType(temp_model, temp_cpu_m, temp_cpu));
 }
 
 void ConfigDialog::OnCpuChanged(wxCommandEvent &event) {
         int temp_model = SelectedModel();
         int temp_cpu_m = SelectedIndex(cb_cpu_manu);
-        int temp_cpu = SelectedIndex(cb_cpu);
+        int temp_cpu = SelectedCpu();
         UpdateCpuDependent(temp_model, temp_cpu_m, temp_cpu, SelectedFpuType(temp_model, temp_cpu_m, temp_cpu));
 }
 
@@ -1098,14 +1141,14 @@ void ConfigDialog::Save() {
         mem &= ~(models[temp_model]->ram_granularity - 1);
         if (mem < models[temp_model]->min_ram)
                 mem = models[temp_model]->min_ram;
-        else if (mem > models[temp_model]->max_ram)
-                mem = models[temp_model]->max_ram;
+        else if (mem > MaxMemory(temp_model))
+                mem = MaxMemory(temp_model);
         if ((models[temp_model]->flags & MODEL_AT) && models[temp_model]->ram_granularity < 128)
                 mem *= 1024;
 
         int gfx = video_new_to_old(SelectedVideoCard());
         int temp_cpu_m = SelectedIndex(cb_cpu_manu);
-        int temp_cpu = SelectedIndex(cb_cpu);
+        int temp_cpu = SelectedCpu();
         int temp_fpu = SelectedFpuType(temp_model, temp_cpu_m, temp_cpu);
         int temp_gameblaster = chk_gameblaster->GetValue();
         int temp_gus = chk_gus->GetValue();

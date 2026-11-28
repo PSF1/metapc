@@ -65,7 +65,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git curl ca-certificates pkg-config ninja-build file \
-            libgtk-3-dev libsdl2-dev libopenal-dev libpcap-dev libslirp-dev \
+            libgtk-3-dev libsdl2-dev libopenal-dev libpcap-dev libslirp-dev libcurl4-openssl-dev \
             libasound2-dev libgl1-mesa-dev libglu1-mesa-dev \
             desktop-file-utils squashfs-tools
           curl -fsSL -o /tmp/cmake.tar.gz \
@@ -84,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/wx
-          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-${{ matrix.arch }}-v1
+          key: wx-${{ env.WX_VERSION }}-focal-static-gtk3-${{ matrix.arch }}-v2
 
       - name: Build wxWidgets
         if: steps.wxcache.outputs.cache-hit != 'true'
@@ -95,7 +95,7 @@ jobs:
           tar -xjf /tmp/wx.tar.bz2 -C /tmp/wxsrc --strip-components=1
           cd /tmp/wxsrc
           ./configure --prefix=/opt/wx --disable-shared --with-gtk=3 \
-            --disable-sys-libs --without-libnotify --disable-webview \
+            --disable-sys-libs --without-libnotify --disable-webview --with-libcurl \
             --disable-mediactrl --without-opengl
           make -j"$(nproc)"
           make install

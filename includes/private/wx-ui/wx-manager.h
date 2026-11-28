@@ -52,6 +52,8 @@ class ManagerFrame : public wxFrame {
         void UpdateCommands();
         void UpdateDetails(bool force);
         bool AskName(const wxString &title, wxString &name);
+        enum NewMachineMode { NEW_CANCEL, NEW_CLASSIC, NEW_BY_BOARD };
+        NewMachineMode AskNewMachine(wxString &name);
 
         void OnNew(wxCommandEvent &event);
         void OnSettings(wxCommandEvent &event);

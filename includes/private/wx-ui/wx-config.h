@@ -3,6 +3,7 @@
 
 #include "wx-utils.h"
 #include "wx-hdgeometry.h"
+#include "wx-trw.h"
 
 #include <wx/choicebk.h>
 #include <wx/listctrl.h>
@@ -50,6 +51,9 @@ class ConfigDialog : public wxDialog {
 #endif
         std::vector<char *> hdd_names;
         std::vector<int> cd_list_to_model;
+        std::vector<int> cpu_list_to_index;
+        /* Limits of the real board the machine was created from, if any. */
+        TrwLimits limits;
 
         bool hd_changed;
         int new_cdrom_channel;
@@ -85,6 +89,8 @@ class ConfigDialog : public wxDialog {
 
         void FindControls();
         int SelectedModel();
+        int SelectedCpu();
+        int MaxMemory(int model_index);
         int SelectedIndex(wxComboBox *cb);
         char *SelectedHdd();
         bool SelectedHddIsMfm();

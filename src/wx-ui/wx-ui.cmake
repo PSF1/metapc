@@ -20,6 +20,7 @@ set(PCEM_PRIVATE_API ${PCEM_PRIVATE_API}
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-shader_man.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-shaderconfig.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-status.h
+        ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-trw.h
         ${CMAKE_SOURCE_DIR}/includes/private/wx-ui/wx-utils.h
         )
 
@@ -65,6 +66,7 @@ set(PCEM_SRC ${PCEM_SRC}
         wx-ui/wx-shaderconfig.cc
         wx-ui/wx-joystickconfig.cc
         wx-ui/wx-createdisc.cc
+        wx-ui/wx-trw.cc
         ${CMAKE_CURRENT_BINARY_DIR}/wx-ui/wx-resources.cpp
         )
 
