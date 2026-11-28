@@ -678,13 +678,17 @@ class StoragePanel : public MachinePanel {
                         grid->Add(led, 0, wxALIGN_CENTER_VERTICAL);
                         leds.push_back(std::make_pair(i, led));
 
-                        if (host_disk) {
-                                /* The geometry to enter in the BIOS of the real machine the card
-                                   will go into: the same one the emulated machine uses. */
+                        {
+                                /* The geometry to enter in the emulated BIOS when it cannot detect the
+                                   disk, and for a CompactFlash card the one to enter in the BIOS of the
+                                   real machine it will go into: the same one. */
                                 wxString chs = wxString::Format("C %d H %d S %d", hdc[i].tracks, hdc[i].hpc, hdc[i].spt);
                                 grid->AddSpacer(0);
                                 wxStaticText *geometry = value_text(this, chs);
-                                geometry->SetToolTip("Geometry to enter in the BIOS of the real machine (cylinders, heads, sectors)");
+                                geometry->SetToolTip(host_disk ? "Geometry to enter in the BIOS of this machine and of the real "
+                                                                 "machine the card goes into (cylinders, heads, sectors)"
+                                                               : "Geometry to enter in the BIOS setup if it does not detect the "
+                                                                 "disk (cylinders, heads, sectors)");
                                 grid->Add(geometry, 1, wxEXPAND | wxALIGN_CENTER_VERTICAL);
                                 grid->Add(MakeButton("Copy", NULL, "Copy the geometry to the clipboard",
                                                      [chs]() {

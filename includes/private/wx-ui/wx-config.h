@@ -133,6 +133,8 @@ class ConfigDialog : public wxDialog {
         void SetDriveGeometry(int drive, const HdGeometryDialog::HdGeometry &g, const wxString &fn);
         void HdConfInit();
         void HdConfUpdate();
+        bool HasDriveController();
+        void UpdateDriveAvailability();
         void UpdateHddCdrom();
         void HdEject(int drive);
         void HdNew(int drive);

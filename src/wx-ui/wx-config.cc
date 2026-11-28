@@ -331,8 +331,12 @@ void ConfigDialog::RecalcHddList(int model_index, bool use_selected_hdd, bool fo
                         strncpy(old_name, SelectedHdd(), sizeof(old_name) - 1);
                 else
                         strcpy(old_name, (model_flags & MODEL_HAS_IDE) ? "none" : "ide");
-        } else
+        } else if (hdd_controller_name[0])
                 strncpy(old_name, hdd_controller_name, sizeof(old_name) - 1);
+        else
+                /* A new machine: AT machines get an IDE controller, so a hard disk can be added
+                   (and found by the BIOS) without first choosing one. */
+                strcpy(old_name, (model_flags & MODEL_AT) ? "ide" : "none");
 
         wx_combobox_clear(cb_hdd);
         hdd_names.clear();
@@ -392,6 +396,8 @@ void ConfigDialog::RecalcHddList(int model_index, bool use_selected_hdd, bool fo
         }
         for (int c = NUM_DRIVES - 1; c >= visible; c--)
                 hd_book->RemovePage(c);
+
+        UpdateDriveAvailability();
 
         hd_book->InvalidateBestSize();
         hd_book->GetParent()->Layout();
@@ -904,6 +910,22 @@ void ConfigDialog::HdConfUpdate() {
                 drives[i].type->Enable(!is_mfm);
         }
         btn_hdd_cfg->Enable(SelectedHddHasConfig());
+        UpdateDriveAvailability();
+}
+
+/* Whether the machine has something to attach drives to: a controller, or built-in IDE. */
+bool ConfigDialog::HasDriveController() {
+        char *hdd = SelectedHdd();
+        return (hdd && strcmp(hdd, "none")) || (models[SelectedModel()]->flags & MODEL_HAS_IDE);
+}
+
+/* Drives can only be set up once there is a controller for them. */
+void ConfigDialog::UpdateDriveAvailability() {
+        bool enable = HasDriveController();
+        for (int i = 0; i < NUM_DRIVES; ++i) {
+                drives[i].panel->Enable(enable);
+                drives[i].panel->SetToolTip(enable ? wxString() : wxString("Choose a hard disk controller first."));
+        }
 }
 
 void ConfigDialog::UpdateHddCdrom() {
@@ -1263,6 +1285,35 @@ void ConfigDialog::OnOk(wxCommandEvent &event) {
         if (!ValidateMacaddr())
                 return;
 #endif
+        /* Hard disks without a controller are invisible to the BIOS, which may then hang
+           waiting for them; models with built-in IDE need none. */
+        int temp_model = SelectedModel();
+        char *temp_hdd = SelectedHdd();
+        if (!(models[temp_model]->flags & MODEL_HAS_IDE) && (!temp_hdd || !strcmp(temp_hdd, "none"))) {
+                bool has_disk = false;
+                for (int c = 0; c < NUM_DRIVES; c++)
+                        if (c != new_cdrom_channel && c != new_zip_channel && !drives[c].fn->GetValue().empty())
+                                has_disk = true;
+                const char *suggested = (models[temp_model]->flags & MODEL_AT) ? "ide" : "xtide";
+                int index = -1;
+                for (size_t i = 0; i < hdd_names.size(); i++)
+                        if (!strcmp(hdd_names[i], suggested))
+                                index = (int)i;
+                if (has_disk && index >= 0) {
+                        int answer = wx_messagebox(this,
+                                                   wxString::Format("This machine has a hard disk but no hard disk controller, "
+                                                                    "so its BIOS cannot see the disk and may hang looking for "
+                                                                    "it.\n\nUse the %s controller?",
+                                                                    cb_hdd->GetString(index)),
+                                                   "MetaPC", wxYES_NO | wxCANCEL | wxICON_QUESTION);
+                        if (answer == wxCANCEL)
+                                return;
+                        if (answer == wxYES) {
+                                cb_hdd->SetSelection(index);
+                                HdConfUpdate();
+                        }
+                }
+        }
         Save();
         pauseEmulation = 0;
         EndModal(wxID_OK);
