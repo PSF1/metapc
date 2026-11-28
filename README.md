@@ -19,9 +19,41 @@ The configuration selection dialog is replaced by a machine manager in the style
 - A list of machines with their state (powered off, starting, running) and a details pane that
   summarises each machine's hardware.
 - New, Settings, Start, Stop, Clone, Rename and Delete commands, plus the host network settings.
+- **New** asks for the machine's name and how to set it up: **Classic** (choose the hardware in the
+  configuration dialog) or **By motherboard** (start from a real board, see below). New machines start
+  from default settings, not from those of the machine shown last.
 - The manager stays open while machines run. Each machine runs in its own process, so several
   machines can run at once, and a machine that is already running cannot be started twice.
 - **Stop** force-stops a machine that no longer responds, after asking first (its unsaved state is lost).
+
+### Machines from Real Motherboards
+**New > By motherboard** creates a machine from a motherboard catalogued on
+[The Retro Web](https://theretroweb.com):
+- Search by model or part number (without the manufacturer, for example `P55T2P4`). Only boards that
+  have BIOS files on The Retro Web are listed.
+- Picking a board shows its chipset, Super I/O and other chips, CPU socket, bus speeds, RAM, slots and
+  ports, and whether MetaPC can emulate it:
+  - **Can be emulated**: MetaPC already emulates that very board. Its own ROM set or one of the board's
+    BIOS files can be used.
+  - **Can be emulated (experimental)**: MetaPC emulates its chipset, so the board's BIOS runs on a
+    MetaPC model with the same chipset (preferring one with the same Super I/O). Warnings say what may
+    not work, such as a different Super I/O or onboard video, sound or SCSI that is not emulated.
+  - **Cannot be emulated**: the reason, usually a chipset MetaPC does not emulate yet.
+- **Use this board** downloads the chosen BIOS, takes it out of its zip (joining the even and odd
+  halves of BIOSes that come as two chips) and checks its size and start-up code before using it.
+- The configuration dialog then keeps to the board: the model is fixed, and it offers only the CPUs
+  for the board's bus speeds, memory up to the board's maximum, and the video, sound, network and disk
+  cards made for its slots (8 or 16-bit ISA, VLB, PCI). These limits are saved with the machine and
+  still apply in **Settings**.
+- A machine can use a BIOS image of its own in place of its model's ROM set; a flash BIOS keeps its
+  settings in the machine's own NVR files.
+
+MetaPC includes none of The Retro Web's data. It only contacts the site when you search or pick a
+board, waits at least 5 seconds between requests as the site's `robots.txt` asks, and identifies itself
+as MetaPC. Boards you look at are cached for 30 days, and downloaded BIOS files are kept, in the `trw`
+folder of the data directory. Board data comes from The Retro Web under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), credited in the search window, the
+cache files and the machine's details. BIOS images belong to their makers.
 
 ### Machine Window
 ![A machine running Alley Cat, with its dockable panels](docs/screenshots/machine-window.png)
@@ -31,7 +63,8 @@ The configuration selection dialog is replaced by a machine manager in the style
   - **Machine**: model, CPU, memory, video and sound cards, state, speed and a speed graph.
   - **Controls**: pause/resume, reset, Ctrl+Alt+Del, screenshot, fullscreen, shut down, speed and turbo.
   - One panel per floppy drive, CD-ROM, ZIP drive and the hard disks, with activity LEDs, load/eject,
-    recently used images and drag and drop.
+    recently used images and drag and drop. The hard disks panel shows each disk's geometry
+    (for example `C 306 H 4 S 17`) with a **Copy** button, for BIOSes that need it typed in.
 - The panel layout and the window position are saved per machine. Fullscreen hides the panels.
 - **Screen filters**: a button on the monitor frame switches between colour (no filter), black and
   white, green phosphor and amber phosphor.
@@ -90,6 +123,8 @@ recorded samples:
 - **Logs in every build**: each process writes a log in the `logs` folder of the data directory
   (`<machine>.log`, or `manager.log` for the manager), so a machine that hangs leaves a trace.
 - The memory amount is kept when the machine model changes (an XT's 640 KB no longer becomes 640 MB).
+- New AT machines get the Standard IDE controller, and drives cannot be set up while a machine has no
+  disk controller (a BIOS could hang looking for a disk that nothing connects).
 - Fixed a hang when starting a machine with an IBM PC Fixed Disk Adapter (Xebec) or DTC 5150X hard
   disk controller.
 
@@ -123,7 +158,8 @@ Issues and pull requests go to [PSF1/metapc](https://github.com/PSF1/metapc), no
 ## How to Build
 You will need the following libraries and buildtools (and their dependencies):
 - SDL2
-- wxWidgets 3.x (including the aui component)
+- wxWidgets 3.x (including the aui and net components; on Linux wxWidgets needs libcurl for
+  web requests, used by the motherboard search)
 - OpenAL
 - CMake
 - ALSA (Linux only)
